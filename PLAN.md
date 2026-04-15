@@ -663,7 +663,7 @@ Compliance footnote: log `respectRobotsTxt: false` invocations for audit; refuse
 
 | Phase | How to verify |
 |---|---|
-| 0 | `git status` clean, `.env.local` populated, `.env.example` committed, cloud accounts provisioned |
+| 0 | `git status` clean, `.env` populated, `.env.example` committed, cloud accounts provisioned |
 | 1 | `yarn dev` → visit `/`, confirm dark theme; sign in with Google + GitHub → `/dashboard` placeholder loads; `prisma studio` shows User row |
 | 2 | Create API key in dashboard UI → confirm shown once → DB row has only hash → revoke → list excludes. Ledger shows 500-credit signup grant. |
 | 3 | `curl` against `/api/v1/scrape` for `https://example.com` with every non-JS format → markdown/html/rawHtml/links/images returned, credit decrements, ledger row created. Re-request within `maxAge` hits cache (still 1 credit, but <300ms). Bad key → 401. |
@@ -725,11 +725,11 @@ Everything you need before Phase 1 starts. Do not skip.
    BRAVE_SEARCH_API_KEY=   # Phase 7 (or SERPAPI_KEY)
    WEBHOOK_SIGNING_SECRET= # Phase 6
    ```
-4. **Create [.env.local](.env.local)** (not committed) with real values for Neon + OAuth now; fill others as phases require. Generate `NEXTAUTH_SECRET` with `openssl rand -base64 32`.
+4. **Create [.env](.env)** (not committed) with real values for Neon + OAuth now; fill others as phases require. Generate `NEXTAUTH_SECRET` with `openssl rand -base64 32`.
 5. **Pin Node version**: `[file]` `.nvmrc` = `20.18.0` (Next 16 supports ≥20; Node 25 is fine locally but pin for Docker/Fly parity).
 
 ### [✓] Checkpoint
-- `git status` clean. `.env.local` **not** staged. `yarn dev` still runs the default page.
+- `git status` clean. `.env` **not** staged. `yarn dev` still runs the default page.
 
 ---
 

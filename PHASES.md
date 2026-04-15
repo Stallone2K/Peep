@@ -44,11 +44,11 @@ Everything you need before Phase 1 starts. Do not skip.
    SENTRY_DSN=             # Phase 8
    STRIPE_SECRET_KEY=      # Phase 8
    ```
-4. **Create [.env.local](.env.local)** (not committed) with real values for Neon + OAuth now; fill others as phases require. Generate `NEXTAUTH_SECRET` with `openssl rand -base64 32`.
+4. **Create [.env](.env)** (not committed) with real values for Neon + OAuth now; fill others as phases require. Generate `NEXTAUTH_SECRET` with `openssl rand -base64 32`.
 5. **Pin Node version**: `[file]` `.nvmrc` = `20.18.0` (Next 16 supports ≥20; Node 25 is fine locally but pin for Docker/Fly parity).
 
 ### [✓] Checkpoint
-- `git status` clean. `.env.local` **not** staged. `yarn dev` still runs the default page.
+- `git status` clean. `.env` **not** staged. `yarn dev` still runs the default page.
 
 ---
 
