@@ -1,0 +1,185 @@
+// Peep — Prisma schema
+// Phase 1: NextAuth tables + core app tables (ApiKey, ScrapeJob, ScrapeResult, CrawlJob, CreditLedger)
+// Postgres (Neon). Pooled URL at runtime, direct URL for migrations.
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+// ─── NextAuth v5 (PrismaAdapter shape) ─────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  planTier      PlanTier  @default(FREE)
+  creditBalance Int       @default(500)
+  createdAt     DateTime  @default(now())
+
+  accounts   Account[]
+  sessions   Session[]
+  apiKeys    ApiKey[]
+  scrapeJobs ScrapeJob[]
+  crawlJobs  CrawlJob[]
+  ledger     CreditLedger[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @id
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── App tables ────────────────────────────────────────────────────
+
+enum PlanTier {
+  FREE
+  HOBBY
+  STANDARD
+  GROWTH
+  SCALE
+  ENTERPRISE
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum CrawlStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  prefix     String    @unique
+  hashedKey  String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scrapeJobs ScrapeJob[]
+
+  @@index([userId])
+  @@index([hashedKey])
+}
+
+model ScrapeJob {
+  id          String    @id @default(cuid())
+  userId      String
+  apiKeyId    String?
+  crawlJobId  String?
+  url         String
+  options     Json
+  status      JobStatus @default(QUEUED)
+  creditsUsed Int       @default(1)
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey   ApiKey?       @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  crawlJob CrawlJob?     @relation(fields: [crawlJobId], references: [id], onDelete: Cascade)
+  result   ScrapeResult?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([crawlJobId])
+}
+
+model ScrapeResult {
+  jobId           String   @id
+  markdown        String?  @db.Text
+  htmlR2Key       String?
+  screenshotR2Key String?
+  metadata        Json?
+  extracted       Json?
+  links           String[]
+  pageStatus      Int?
+  durationMs      Int?
+  createdAt       DateTime @default(now())
+
+  job ScrapeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model CrawlJob {
+  id              String      @id @default(cuid())
+  userId          String
+  rootUrl         String
+  options         Json
+  status          CrawlStatus @default(QUEUED)
+  totalDiscovered Int         @default(0)
+  totalCompleted  Int         @default(0)
+  createdAt       DateTime    @default(now())
+  completedAt     DateTime?
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs ScrapeJob[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+}
+
+model CreditLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  delta     Int
+  reason    String
+  refType   String?
+  refId     String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
