@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Antenna,
-  BarChart3,
+  BadgeDollarSign,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -85,7 +85,7 @@ const SECTIONS: Section[] = [
         href: "/dashboard/activity-logs",
         icon: Antenna,
       },
-      { label: "Usage", href: "/dashboard/usage", icon: BarChart3 },
+      { label: "Usage", href: "/dashboard/usage", icon: BadgeDollarSign },
       { label: "API Keys", href: "/dashboard/api-keys", icon: KeyRound },
       { label: "Settings", href: "/dashboard/settings", icon: Settings },
     ],
