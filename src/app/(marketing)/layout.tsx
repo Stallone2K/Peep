@@ -28,9 +28,15 @@ export default function MarketingLayout({
         </div>
       </div>
 
-      {/* Nav — exactly one grid cell tall (96px) */}
-      <header className="bg-background/70 border-border/60 sticky top-0 z-40 border-b backdrop-blur">
-        <div className="mx-auto flex h-24 max-w-6xl items-center justify-between px-6">
+      {/* Grid frame: contains the nav, hero, and every section. The grid
+          background is constrained to this max-w-6xl column; outside it is
+          plain background. Nav and content sit ON the grid lines. */}
+      <div className="relative mx-auto w-full max-w-6xl flex-1">
+        <PageGrid />
+
+        {/* Nav — exactly one grid cell tall (96px), inside the grid frame */}
+        <header className="bg-background/70 sticky top-0 z-40 backdrop-blur">
+          <div className="flex h-24 items-center justify-between px-6">
           <Link href="/" aria-label="Peep Home">
             <Logo />
           </Link>
@@ -63,8 +69,6 @@ export default function MarketingLayout({
         </div>
       </header>
 
-      <div className="relative flex-1">
-        <PageGrid />
         {children}
       </div>
 
