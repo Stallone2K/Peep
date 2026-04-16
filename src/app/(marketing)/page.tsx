@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  Check,
   Cpu,
   Flame,
   Gauge,
@@ -91,7 +92,7 @@ function Hero() {
         <div className="relative mt-3 flex justify-end">
           <span className="border-border/60 bg-card/70 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs backdrop-blur">
             <span className="inline-flex size-4 items-center justify-center rounded-full bg-orange-500 text-black">
-              <Sparkle className="size-2.5 fill-current" />
+              <Check className="size-2.5" strokeWidth={3} />
             </span>
             Scrape Completed
           </span>
