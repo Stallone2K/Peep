@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown, Star } from "lucide-react";
 
 import { Logo } from "@/components/marketing/logo";
+import { PageGrid } from "@/components/marketing/page-grid";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +63,10 @@ export default function MarketingLayout({
         </div>
       </header>
 
-      <div className="flex-1">{children}</div>
+      <div className="relative flex-1">
+        <PageGrid />
+        {children}
+      </div>
 
       {/* Footer */}
       <footer className="border-border/60 border-t">

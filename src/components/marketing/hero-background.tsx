@@ -1,5 +1,7 @@
-// Small pixel-art flecks that live inside grid cells
-// (faintly hinted squares, like rendered fragments of scraped data)
+// Hero-only decorations: corner registration marks + scattered pixel-art
+// clusters. The base grid + intersection dots now live site-wide in
+// <PageGrid /> so the graph paper continues beneath every section.
+
 const DECOS = [
   { top: "8%", left: "50%", cells: 3 },
   { top: "18%", left: "68%", cells: 5 },
@@ -11,7 +13,6 @@ const DECOS = [
 ];
 
 function PixelCluster({ cells }: { cells: number }) {
-  // A small cluster of 3px squares arranged in a rough triangle/scatter
   const arr = Array.from({ length: cells });
   return (
     <div className="relative size-16">
@@ -36,21 +37,8 @@ function PixelCluster({ cells }: { cells: number }) {
 export function HeroBackground() {
   return (
     <>
-      {/* Base grid (thin lines) */}
-      <div
-        aria-hidden
-        className="bg-grid absolute inset-0 -z-30"
-        style={{ backgroundSize: "112px 112px" }}
-      />
-      {/* Dots at every grid intersection */}
-      <div
-        aria-hidden
-        className="bg-grid-dots mask-radial-fade absolute inset-0 -z-30"
-        style={{ backgroundSize: "112px 112px", backgroundPosition: "56px 56px" }}
-      />
-
-      {/* Pixel-art clusters (simulated ASCII scrape output fragments) */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20">
+      {/* Pixel-art clusters (simulated ASCII scrape-output fragments) */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         {DECOS.map((d, i) => (
           <div
             key={i}
@@ -72,7 +60,6 @@ export function HeroBackground() {
         <span className="absolute bottom-24 left-6">[ .JSON ]</span>
         <span className="absolute bottom-24 right-6">[ .MD ]</span>
       </div>
-
     </>
   );
 }
