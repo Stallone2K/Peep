@@ -108,7 +108,7 @@ export function SidebarNav({
       : pathname === href || pathname.startsWith(href + "/");
 
   return (
-    <aside className="border-border/60 bg-background flex h-screen w-60 shrink-0 flex-col border-r">
+    <aside className="border-border/60 bg-background sticky top-0 flex h-screen w-60 shrink-0 flex-col self-start border-r">
       <div className="border-border/60 flex h-14 items-center border-b px-4">
         <Link href="/" aria-label="Peep Home">
           <Logo />
@@ -136,19 +136,13 @@ export function SidebarNav({
                         item.disabled ? (e) => e.preventDefault() : undefined
                       }
                       className={cn(
-                        "group/item relative flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
+                        "group/item flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
                         active
                           ? "bg-orange-500/10 text-orange-300"
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
                         item.disabled && "cursor-not-allowed opacity-50",
                       )}
                     >
-                      {active ? (
-                        <span
-                          aria-hidden
-                          className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-orange-500"
-                        />
-                      ) : null}
                       <Icon className="size-4 shrink-0" />
                       <span className="flex-1">{item.label}</span>
                       {item.badge ? (

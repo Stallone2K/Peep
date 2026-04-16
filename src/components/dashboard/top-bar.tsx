@@ -13,7 +13,7 @@ import { buttonVariants } from "@/components/ui/button";
 
 export function TopBar({ teamName }: { teamName: string }) {
   return (
-    <div className="border-border/60 bg-background/80 flex h-14 items-center justify-between border-b px-6 backdrop-blur">
+    <div className="border-border/60 bg-background/80 sticky top-0 z-30 flex h-14 items-center justify-between border-b px-6 backdrop-blur">
       <button
         type="button"
         className="border-border/60 bg-card/50 hover:bg-card text-foreground inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors"
