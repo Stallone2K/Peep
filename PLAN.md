@@ -659,69 +659,424 @@ Compliance footnote: log `respectRobotsTxt: false` invocations for audit; refuse
 
 ---
 
-## 11. Firecrawl upstream intel (from repo filename inspection)
+## 11. Firecrawl Code-Level Parity (Deep Dive)
 
-Captured during Phase 2 from a shallow clone of [firecrawl/firecrawl](https://github.com/firecrawl/firecrawl). The sandbox blocked file reads for agents, but filenames alone surface real features worth tracking before they catch us later.
+Read directly from a clone of [firecrawl/firecrawl](https://github.com/firecrawl/firecrawl) — mostly `apps/api/src/controllers/v2/types.ts` (1864 lines), `apps/api/src/lib/scrape-billing.ts`, and the JS SDK at `apps/js-sdk/firecrawl/src/v2/client.ts`. This section is the ground-truth feature inventory we're mirroring, replacing the earlier filename-level §11.
 
-### 11.1 API versioning they actually ship
-- **v0** (legacy), **v1** (current, what our PLAN aligns to), **v2** (newest).
-- v2 adds: `agent`, `agent-signup`, `agent-signup-confirm`, `agent-cancel`, `agent-status`, `browser` (sessions), `scrape-browser`, `crawl-params-preview`, `f-search`.
-- Lesson: **build `/api/v1/*` in Peep, and leave a version prefix hook so v2 can coexist**. Don't hard-code paths outside the versioned namespace.
+### 11.1 API versions shipped
+- **v0** — legacy, still served
+- **v1** — current stable; Peep `/api/v1/*` targets parity with this
+- **v2** — newest, introduces `agent`, `browser` sessions, `scrape-browser`, `crawl-params-preview`, `f-search`, and tightened schemas
+- **Decision**: build `/api/v1/*` in Peep first. Leave a namespace hook so `/api/v2/*` can coexist later. Do NOT hard-code endpoints outside the version prefix.
 
-### 11.2 Endpoints we don't have in PLAN
-| Firecrawl endpoint | In our PLAN? | Action |
+### 11.2 Complete endpoint inventory (v2 controllers)
+
+All under `apps/api/src/controllers/v2/`. Peep parity target column: MVP | Fast-Follow (FF) | Defer (D).
+
+| Controller file | Purpose | Peep target |
 |---|---|---|
-| `deep-research` + `deep-research-status` | no | Add to §6 as **Defer** — agentic research over a topic |
-| `generate-llmstxt` + `status` | no | Add to §6 as **Fast-follow** — `/llms.txt` generator |
-| `concurrency-check` | no | Add as a dashboard-adjacent endpoint (Phase 2 addendum) |
-| `queue-status` | no | Internal; roll into `/admin/queues` (Phase 9 observability) |
-| `activity` | partially (we call it Activity Logs) | Already modelled as per-user job feed |
-| `credit-usage-historical`, `token-usage-historical` | no | Add to Usage page scope — time-series endpoints |
-| `crawl-ongoing` | no | Add to `/crawl` surface — list in-flight crawls |
-| `crawl-params-preview` | no | Add — "dry run" a crawl config |
-| `f-search` | unclear | Skip until we understand what "f-" prefix means |
-| `fireclaw` | unclear | Skip — likely Firecrawl-specific brand feature |
-| `x402-search` | no | Skip — HTTP 402 / crypto-paid search, niche |
+| `scrape.ts` | Single-URL scrape | **MVP (P3/P4)** |
+| `scrape-status.ts` | GET status of an async scrape job | **MVP (P3)** |
+| `scrape-browser.ts` | Start an interactive Playwright session for a scrape | **Defer** |
+| `batch-scrape.ts` | Scrape a list of URLs in parallel | **MVP (P6)** |
+| `crawl.ts` | Recursive site crawl | **MVP (P6)** |
+| `crawl-status.ts` | GET crawl job status + paginated results | **MVP (P6)** |
+| `crawl-status-ws.ts` | WebSocket live stream of crawl documents | **FF (P6)** |
+| `crawl-errors.ts` | GET list of per-URL failures for a crawl | **MVP (P6)** |
+| `crawl-cancel.ts` | DELETE an in-flight crawl | **MVP (P6)** |
+| `crawl-ongoing.ts` | List the user's currently-running crawls | **FF (P6)** |
+| `crawl-params-preview.ts` | Dry-run a crawl config — returns predicted URLs without enqueueing | **FF (P6)** |
+| `map.ts` | Discover URLs (sitemap + 1-level crawl) | **MVP (P6)** |
+| `extract.ts` | Structured data extraction (schema or prompt, multi-URL, wildcards) | **MVP (P5)** |
+| `extract-status.ts` | GET status of an async extract job | **MVP (P5)** |
+| `search.ts` | Web search + optional scrape of each result | **FF (P7)** |
+| `f-search.ts` | (Unclear — "fast" search variant) | **Defer** |
+| `x402-search.ts` | Crypto-paid (HTTP 402) search | **Skip** |
+| `agent.ts` | FIRE-1 autonomous agent (navigate + extract over multiple pages) | **Defer** |
+| `agent-status.ts` | Agent job status | **Defer** |
+| `agent-cancel.ts` | Cancel a running agent | **Defer** |
+| `agent-signup.ts` + `-confirm.ts` | Agent user onboarding flow | **Defer** |
+| `browser.ts` | Persistent managed browser sessions (list/create/delete) | **Defer** |
+| `concurrency-check.ts` | Live count of in-flight browser sessions for this user | **FF (P2/P4)** |
+| `queue-status.ts` | Queue depth + worker liveness | **FF (P9 observability)** |
+| `activity.ts` | User's recent API activity feed | **MVP (P3)** |
+| `credit-usage.ts` + `credit-usage-historical.ts` | Live + time-series credit spend | **MVP (P2) / FF (P2)** |
+| `token-usage.ts` + `token-usage-historical.ts` | LLM token spend (distinct from credits) | **FF (P5)** |
+| `deep-research.ts` + `deep-research-status.ts` | Multi-step agentic research over a topic | **Defer** |
+| `generate-llmstxt.ts` + `-status.ts` | Produce an `llms.txt` + associated `llms-full.txt` for a site | **FF (post-MVP)** |
+| `fireclaw.ts` | (Unclear — Firecrawl-specific utility) | **Skip** |
 
-### 11.3 Scraper engines Firecrawl runs (under `apps/api/src/scraper/scrapeURL/engines/`)
-- **fetch** — HTTP-only (our Phase 3 fast path ✓)
-- **playwright** — headful rendering (our Phase 4 ✓)
-- **fire-engine** — Firecrawl's proprietary browser service (their equivalent of Browserless; Peep will use Bright Data stealth, Phase 7)
-- **pdf** — PDF parsing (Peep: **Defer**)
-- **document** — DOCX/XLSX/RTF/ODT via a Rust native addon (Peep: **Defer**)
-- **wikipedia** — special-case parser (Peep: **Defer**; Readability already handles MediaWiki reasonably)
-- **index** — cache-lookup engine (our Phase 3 `maxAge` cache ✓)
+### 11.3 Scrape formats (11 types with sub-options)
 
-### 11.4 Transformers (under `scrapeURL/transformers/`)
-- `llmExtract` — our Phase 5 `json` / `/extract` ✓
-- `agent` — Phase 5 defer
-- `audio` — defer
-- `diff` — Phase 7 changeTracking ✓
-- `performAttributes` — scroll/computed style extraction, maps to our `actions[]` (Phase 4)
-- `query` — unclear, likely post-extract filtering
-- `removeBase64Images` — ✓ already in scrape params
-- `sendToSearchIndex` — internal indexing for their own `/search`
-- `uploadScreenshot` — screenshot upload path (our R2 upload Phase 4 ✓)
+From `controllers/v2/types.ts` line 411:
 
-### 11.5 Backend services worth calling out
-- `billing/autumn/` — they use **Autumn** (autumn.so) as a billing-logic layer over Stripe. We plan to talk to Stripe directly; keep an eye on this for plan-change edge cases.
-- `idempotency/{create,validate}` — idempotency keys on mutation endpoints. **Add to Phase 3/6 scope** — every job-creating POST should accept an `Idempotency-Key` header.
-- `nuq/nuq-worker/nuq-reconciler-worker/nuq-prefetch-worker` — custom queue (not BullMQ). Cost-optimized version of what we do with BullMQ. Not a blocker; stick with BullMQ.
-- `redlock` — distributed locking on Redis. We'll need this when crawl workers race for the same host (Phase 6).
-- `agent-sponsor`, `agentLivecastWS` — agent live-view features; map to our `/crawl/:id/watch` WS scope.
-- `gcs-pdf-cache`, `gcs-jobs` — GCS for artifacts; our R2 plan is equivalent.
+| Format type | Sub-options | Peep |
+|---|---|---|
+| `markdown` | none | **MVP** |
+| `html` | none (sanitized Readability HTML) | **MVP** |
+| `rawHtml` | none (pre-Readability body) | **MVP** |
+| `links` | none | **MVP** |
+| `images` | none | **MVP** |
+| `summary` | none (LLM-generated 2-3 para summary) | **FF (P5)** |
+| `screenshot` | `fullPage` (bool), `quality` (1-100), `viewport` (w×h up to 8K) | **MVP (P4)** |
+| `json` | `schema` (JSON Schema, OpenAI-normalized), `prompt` (≤10k chars) | **MVP (P5)** |
+| `changeTracking` | `modes[]` (`git-diff` \| `json`), `schema`, `prompt`, `tag` (scope history) | **FF (P7)** — requires `markdown` also in formats |
+| `branding` | none (returns colors, fonts, typography, UI hints) | **FF (P5)** |
+| `audio` | none (extracts MP3 from YT etc., signed URL) | **Defer** |
+| `attributes` | `selectors[]` of `{selector, attribute}` — pull specific attrs off elements | **FF (P5)** |
+| `query` | `prompt` (≤10k chars), `directQuote` bool | **Defer** |
 
-### 11.6 Persistence
-- **Firecrawl uses Supabase + Redis**, not Prisma. Our Prisma 7 + Neon stack is a deliberate divergence — keep it, but accept that when we cite upstream schema we'll translate.
+**Format validation rules** (enforced in Zod):
+- Max one `screenshot` format per request
+- `changeTracking` requires `markdown` to also be present
 
-### 11.7 SDK parity target
-- Firecrawl's SDKs (JS v1 + v2, Python v1 + v2, .NET, plus archived Rust/PHP/Java/Elixir) use a **method-per-endpoint** shape: `scrape`, `batch`, `crawl`, `map`, `extract`, `search`, `usage`, `browser`, `agent`, plus `watcher` / `watcher_async` for WS crawl streaming.
-- Our PLAN Phase 8 already has `@peep/sdk` matching this. No change.
+### 11.4 Complete scrape parameters (every field)
 
-### 11.8 Things to circle back on
-- **Idempotency keys**: add to Phase 3's `/scrape` and Phase 6's `/crawl`/`/batch` POSTs. Pattern: `Idempotency-Key` header, dedupe in Redis for 24h, return cached response on replay.
-- **"Integration" field**: Firecrawl scrape types include an `integrationSchema` — likely tags scrapes with source integration (e.g. "langchain"). Useful for analytics; add as optional string in `ScrapeJob.options`.
-- **Crawl preview**: build a `/api/v1/crawl/preview` that runs sitemap + filters without enqueuing — helps users tune `includePaths` before committing credits.
+From `baseScrapeOptions` at `controllers/v2/types.ts:507`:
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `url` | string (http/https, DNS-validated) | required | |
+| `formats` | array of format objects | `[{type:"markdown"}]` | see §11.3 |
+| `headers` | `Record<string,string>` | — | custom request headers |
+| `includeTags` | `string[]` (CSS selectors) | — | whitelist elements |
+| `excludeTags` | `string[]` | — | blacklist elements; `iframe` → `div[data-original-tag="iframe"]` |
+| `onlyMainContent` | bool | `true` | Readability main-content extraction |
+| `onlyCleanContent` | bool | `false` | stricter — strip all chrome |
+| `timeout` | int ms | (conditional) | auto-bumped: `json`/`changeTracking`→60s, `proxy=stealth/enhanced/auto`→120s |
+| `waitFor` | int ms (≤60_000) | `0` | max half of `timeout`; `changeTracking` auto-sets ≥5s |
+| `mobile` | bool | `false` | emulate mobile viewport/UA |
+| `parsers` | array (pdf options) | `["pdf"]` | `{type:"pdf", mode:"fast"\|"auto"\|"ocr", maxPages:≤10_000}` |
+| `actions` | array (up to 50) | — | see §11.5 |
+| `location` | `{country, languages[]}` | `country="us-generic"` | ISO alpha-2 + `"us-generic"`/`"us-whitelist"` specials |
+| `skipTlsVerification` | bool | — | bypass TLS cert checks |
+| `removeBase64Images` | bool | `true` | strip data: URIs before markdown |
+| `fastMode` | bool | `false` | HTTP-only path, skip JS rendering |
+| `useMock` | string | — | internal: redirect to a mock response by name |
+| `blockAds` | bool | `true` | uBlock-style filter on Playwright context |
+| `proxy` | enum: `basic`\|`stealth`\|`enhanced`\|`auto` | `auto` | stealth = residential, enhanced = +datacenter bypass |
+| `maxAge` | int ms (≥0) | — | cache: return cached if `age ≤ maxAge` |
+| `minAge` | int ms (≥0) | — | cache: only serve cache if `age ≥ minAge` |
+| `storeInCache` | bool | `true` | write result back to cache after scrape |
+| `profile` | `{name (1-128 chars), saveChanges bool}` | — | **named browser profile / cookies session** |
+| `zeroDataRetention` | bool | — | enterprise — delete payload after response (+1 credit) |
+
+**Peep status**: All above are MVP except `profile` (Defer — needs persistent browser session infra), `useMock` (skip), `zeroDataRetention` (Defer — Enterprise only).
+
+### 11.5 Actions — 9 types (max 50 per request, max 60s total wait)
+
+From `actionSchema` at line 253:
+
+| Type | Required params | Optional params | Peep phase |
+|---|---|---|---|
+| `wait` | `milliseconds` OR `selector` (exclusive-or) | — | P4 |
+| `click` | `selector` | `all` (bool, default false) | P4 |
+| `screenshot` | — | `fullPage`, `quality`, `viewport` | P4 |
+| `write` | `text` | — | P4 |
+| `press` | `key` | — | P4 |
+| `scroll` | — | `direction` (up/down, default down), `selector` | P4 |
+| `scrape` | — (intermediate scrape, returns snapshot) | — | P4 |
+| `executeJavascript` | `script` | — | P4 — gate behind PRO plan |
+| `pdf` | — (render page to PDF) | `landscape`, `scale`, `format` (A0–A6/Letter/Legal/Tabloid/Ledger) | Defer |
+
+### 11.6 Crawl parameters
+
+From `crawlerOptions` at line 904 + `crawlRequestSchema` at line 933:
+
+| Param | Type | Default | Peep |
+|---|---|---|---|
+| `url` | URL | required | MVP |
+| `includePaths` | `string[]` (regex) | `[]` | MVP |
+| `excludePaths` | `string[]` (regex) | `[]` | MVP |
+| `maxDiscoveryDepth` | int | — | MVP |
+| `limit` | int | `10_000` | MVP |
+| `crawlEntireDomain` | bool | — | MVP |
+| `allowExternalLinks` | bool | `false` | MVP |
+| `allowSubdomains` | bool | `false` | MVP |
+| `ignoreRobotsTxt` | bool | `false` | MVP (PRO gated) |
+| `robotsUserAgent` | string | — | FF |
+| `sitemap` | enum: `skip`\|`include`\|`only` | `include` | MVP |
+| `deduplicateSimilarURLs` | bool | `true` | **NEW** — dedupes query-param variants, trailing slashes, etc. |
+| `ignoreQueryParameters` | bool | `false` | MVP |
+| `regexOnFullURL` | bool | `false` | MVP |
+| `delay` | number (seconds) | — | MVP |
+| `scrapeOptions` | baseScrapeOptions | defaults | MVP |
+| `webhook` | webhookSchema | — | MVP |
+| `maxConcurrency` | int | plan cap | MVP |
+| `zeroDataRetention` | bool | — | Defer |
+| `prompt` | string (≤10k chars) | — | FF — natural-language → auto-generate `includePaths` etc. |
+
+### 11.7 Map parameters
+
+From `mapRequestSchema` at line 973 (inherits crawlerOptions minus sitemap/ignoreQueryParameters, plus extras):
+
+| Param | Default | Notes |
+|---|---|---|
+| `url` | required | |
+| `search` | — | fuzzy filter on URL paths |
+| `limit` | `5000` (max `100_000`) | |
+| `sitemap` | `include` | enum: `only`\|`include`\|`skip` |
+| `includeSubdomains` | `true` | |
+| `ignoreQueryParameters` | `true` (opposite of crawl default) | |
+| `timeout` | — | |
+| `filterByPath` | `true` | |
+| `useIndex` | `true` | **use internal URL index for fast replies** |
+| `ignoreCache` | `false` | bypass the index |
+| `location` | — | `{country, languages[]}` |
+| `headers` | — | |
+
+### 11.8 Extract parameters
+
+From `extractOptions` at line 685:
+
+| Param | Default | Notes |
+|---|---|---|
+| `urls` | — (optional!) | `max: 10 URLs in beta`; supports wildcards via `/` path or `*` |
+| `prompt` | — | required if `urls` missing — prompt-only extraction over the web |
+| `systemPrompt` | — | overrides default LLM system prompt |
+| `schema` | — | JSON Schema (Ajv-validated, OpenAI-normalized) |
+| `limit` | — | cap URLs explored |
+| `ignoreSitemap` | `false` | |
+| `includeSubdomains` | `true` | |
+| `allowExternalLinks` | `false` | auto-enabled when `enableWebSearch: true` |
+| `enableWebSearch` | `false` | augment with `/search` results |
+| `scrapeOptions` | baseScrapeOptions | |
+| `urlTrace` | `false` | include discovery provenance in response |
+| `timeout` | — | |
+| `agent` | — | `{model: "fire-1" \| other}` — use FIRE-1 agent for discovery |
+| `showSources` | `false` | return source URLs next to each extracted field |
+| `ignoreInvalidURLs` | `true` | skip bad URLs rather than fail the whole job |
+| `webhook` | — | |
+
+### 11.9 Search parameters
+
+From `searchRequestSchema` at line 1638:
+
+| Param | Default | Notes |
+|---|---|---|
+| `query` | required | |
+| `limit` | `10` (max `100`) | per-source |
+| `tbs` | — | time-based search (`qdr:d`/`qdr:w`, custom date ranges) |
+| `filter` | — | source-side filter |
+| `sources` | `["web"]` | array of `web`\|`images`\|`news` — can be **per-source** objects with per-source `tbs`/`filter`/`lang`/`country`/`location` |
+| `categories` | — | array of `github`\|`research`\|`pdf` (also per-category objects) |
+| `lang` | `en` | |
+| `country` | `us` (conditional) | |
+| `location` | — | free-form location string |
+| `timeout` | `60_000` ms | |
+| `scrapeOptions` | — | if set, full markdown comes back per result |
+| `asyncScraping` | `false` | return jobId instead of blocking on scrape completion |
+| `enterprise` | — | array of `default`\|`anon`\|`zdr` — enterprise privacy tiers |
+
+### 11.10 Agent parameters (FIRE-1-style)
+
+From `agentRequestSchema` at line 766 — **Defer for v1, but capture shape now**:
+
+| Param | Notes |
+|---|---|
+| `urls` | — (optional; if missing, agent discovers) |
+| `prompt` | required (≤10k chars) |
+| `schema` | JSON Schema |
+| `maxCredits` | budget ceiling |
+| `strictConstrainToURLs` | bool |
+| `webhook` | — |
+| `model` | enum: `spark-1-pro` \| `spark-1-mini` (Firecrawl's agent model names) |
+| `overrideWhitelist` | — |
+
+### 11.11 Batch scrape parameters
+
+From `batchScrapeRequestSchemaBase` at line 837:
+
+- `urls` (min 1) — distinct URL list
+- `scrapeOptions` — applied to every URL
+- `webhook`
+- `appendToId` (UUID) — **append URLs to an existing batch job**
+- `ignoreInvalidURLs` (default `true`)
+- `maxConcurrency`
+- `zeroDataRetention`
+
+### 11.12 Credit-cost rules (exact, from `scrape-billing.ts`)
+
+```
+Base scrape:                           1 credit
+json format OR changeTracking[json]:   → 5 credits (replaces base, not additive)
+query format:                          +4 credits
+audio format:                          +4 credits
+stealth proxy actually used:           +4 credits
+unblocked domain bonus:                +4 credits
+ZDR (zero data retention):             +1 credit (configurable per team)
+PDF page N (after first):              +1 credit each
+FIRE-1 agent:                          ceil(totalCost × 1800) — token-based
+DNS resolution error:                  1 credit billed (yes, they charge failed DNS)
+All other failures:                    0 credits (unless FIRE-1 mid-flight)
+```
+
+Stealth bonus is **skipped** if `stealthProxy` was an unsupported feature for that engine. The "unblocked domain bonus" fires on hard-case domains that required extra infrastructure.
+
+### 11.13 Scraper engines (under `scrapeURL/engines/`)
+
+| Engine | Purpose | Peep |
+|---|---|---|
+| `fetch` | HTTP-only (undici) | **MVP (P3)** |
+| `playwright` | Headful Chromium | **MVP (P4)** |
+| `fire-engine` | Firecrawl's proprietary browser service (like Browserless) | **Replace with Bright Data stealth (P7)** |
+| `pdf` | PDF parsing with fast/auto/OCR modes | **FF (post-MVP)** |
+| `document` | DOCX/XLSX/RTF/ODT via Rust native addon | **Defer** |
+| `wikipedia` | MediaWiki-optimized parser | **Skip** — Readability handles it |
+| `index` | Cache-lookup engine (checks maxAge/minAge first) | **MVP (P3) — already in cache plan** |
+
+### 11.14 Transformers (under `scrapeURL/transformers/`)
+
+Run after an engine produces raw content. Order matters.
+
+| Transformer | Purpose | Peep |
+|---|---|---|
+| `llmExtract` | JSON/extract format — Claude extraction | **MVP (P5)** |
+| `diff` | changeTracking format — git-diff or JSON field diff | **FF (P7)** |
+| `performAttributes` | `attributes` format — pull attribute values | **FF (P5)** |
+| `query` | `query` format — natural-language post-extract filter | **Defer** |
+| `removeBase64Images` | Strip data:URIs | **MVP (P3)** |
+| `uploadScreenshot` | Push screenshot to object storage, return signed URL | **MVP (P4)** |
+| `audio` | MP3 extraction (YouTube etc.) | **Defer** |
+| `agent` | FIRE-1 agent runs | **Defer** |
+| `sendToSearchIndex` | Internal: feeds `/search` index | **Skip** — not user-facing |
+
+### 11.15 Backend services (under `services/` + `lib/`)
+
+**Infrastructure** we need at scale:
+
+| Service / Lib | Purpose | Peep phase |
+|---|---|---|
+| `queue-service`, `queue-worker`, `queue-jobs` | BullMQ-equivalent (they use custom `nuq`) | P4 (BullMQ) |
+| `worker/scrape-worker` | Scrape job consumer | P4 |
+| `worker/crawl-logic` | Crawl frontier + child-job fan-out | P6 |
+| `worker/team-semaphore` | **Per-team concurrency cap** — important for fairness | P4 |
+| `rate-limiter` | Upstash sliding window | P7 |
+| `redlock` | Distributed locks (per-host) | P6 |
+| `webhook/{config,delivery,queue,schema,types}` | Signed webhook delivery + retry queue | P6 |
+| `idempotency/{create,validate}` | **Idempotency-Key header** dedup (24h in Redis) | **Add to P3/P6** |
+| `billing/credit_billing`, `batch_billing`, `auto_charge`, `issue_credits`, `stripe` | Credit accounting + Stripe integration | P9 |
+| `billing/autumn/` | Autumn.so — billing-logic layer (we'll go direct Stripe) | skip |
+| `ledger/` | Credit + token-spend audit trail | P2 (schema ✓) / P5 (tokens) |
+| `subscription/enterprise-check` | Plan-gate feature flags | P9 |
+| `indexing/index-worker`, `indexer-queue` | Internal URL index for `/map useIndex:true` | FF (P6) |
+| `extract-queue`, `extract-worker` | Dedicated extract job pipeline | P5 |
+| `notification/email_notification`, `notification-check` | Transactional email | P9 |
+| `alerts/slack` | Ops alerts | P9 |
+| `ab-test`, `ab-test-comparison` | Internal experiments | skip |
+| `agentLivecastWS`, `agent-sponsor` | Agent live-view WS (web-console visibility) | Defer |
+| `sentry`, `otel-tracer`, `system-monitor`, `logging/` | Observability | P9 |
+| `redis.ts`, `supabase.ts`, `clickhouse-client.ts` | Data-layer clients | Peep: ioredis + Prisma |
+
+**Library helpers** in `lib/` worth noting:
+
+| Lib file | Purpose | Peep |
+|---|---|---|
+| `robots-txt.ts` | robots.txt parser + 24h cache | P7 |
+| `canonical-url.ts` | URL normalization (strip UTM, dedupe) | P6 (frontier) |
+| `validateUrl.ts` + `validate-country.ts` | SSRF + country code validation | P3 ✓ |
+| `engpicker.ts` | **Engine picker** — decides fetch vs playwright vs fire-engine per URL | P4 (strategy.ts ✓) |
+| `concurrency-limit.ts`, `concurrency-queue-reconciler.ts` | Plan-tier concurrency management | P7 |
+| `cost-tracking.ts` | Rolls up per-request LLM costs for billing | P5 |
+| `gcs-pdf-cache.ts`, `gcs-jobs.ts` | GCS blob storage | Peep: R2 |
+| `branding/` | Full pipeline for `branding` format (logo-selector, prompts, processors) | FF (P5) |
+| `deep-research/` | Deep research service | Defer |
+| `extract/` | Extract pipeline (url-processor, reranker, build-document, build-prompts) | P5 |
+| `generate-llmstxt/` | `/llms.txt` generator | FF (post-MVP) |
+| `map-cosine.ts`, `map-utils.ts`, `ranker.ts` | Map endpoint helpers (semantic filtering) | P6 |
+| `browser-sessions.ts`, `browser-billing.ts`, `browser-session-activity.ts` | Persistent named browser sessions | Defer |
+| `x402.ts` | HTTP 402 / crypto payment flow | Skip |
+| `zdr-helpers.ts` | Zero data retention helpers | Defer |
+
+### 11.16 JS SDK public methods (from `apps/js-sdk/firecrawl/src/v2/client.ts`)
+
+The shape Peep's `@peep/sdk` must mirror (Phase 8):
+
+```ts
+// Single + polling
+scrape(url, options?): Promise<Document>
+interact(url, ops, options?): Promise<...>                       // scrape-browser
+stopInteraction(jobId), stopInteractiveBrowser(jobId), deleteScrapeBrowser(jobId)
+scrapeExecute(...)
+
+// Search + Map
+search(query, opts?): Promise<SearchData>
+map(url, opts?): Promise<MapData>
+
+// Crawl
+startCrawl(url, req?): Promise<CrawlResponse>
+getCrawlStatus(jobId, pagination?): Promise<CrawlJob>
+cancelCrawl(jobId): Promise<boolean>
+crawl(url, {pollInterval, timeout}): Promise<CrawlJob>            // polling wrapper
+getCrawlErrors(crawlId), getActiveCrawls(), crawlParamsPreview(url, prompt)
+
+// Batch scrape
+startBatchScrape(urls, opts?), getBatchScrapeStatus(jobId), getBatchScrapeErrors(jobId)
+cancelBatchScrape(jobId), batchScrape(urls, {pollInterval, timeout})
+
+// Extract
+startExtract(args), getExtractStatus(jobId), extract(args, {pollInterval, timeout})
+
+// Agent
+startAgent(args), getAgentStatus(jobId), agent(args, {pollInterval, timeout}), cancelAgent(jobId)
+
+// Browser sessions
+browser(...), browserExecute(...), deleteBrowser(sessionId), listBrowsers(...)
+
+// Observability
+getConcurrency(), getCreditUsage(), getTokenUsage()
+getCreditUsageHistorical(byApiKey?), getTokenUsageHistorical(byApiKey?)
+getQueueStatus()
+```
+
+Python SDK (`apps/python-sdk/firecrawl/v2/`) has identical method set plus `watcher` / `watcher_async` for WS crawl streaming.
+
+### 11.17 Dashboard UI
+
+Firecrawl's actual `firecrawl.dev/app` dashboard is **closed-source** — the only open UI in the repo is `apps/ui/ingestion-ui/`, which is just a demo template exposing an API key in client code. We can't cargo-cult their dashboard; our Peep dashboard design (shipped in Phase 2) is our own interpretation of screenshots.
+
+### 11.18 Gap analysis — what needs adding to the PLAN
+
+Features discovered in this deep dive that weren't in our earlier §6 parity matrix:
+
+| Feature | Priority | Target phase |
+|---|---|---|
+| `summary` format | FF | P5 — already scoped |
+| `attributes` format | FF | **new — P5** |
+| `query` format | Defer | post-MVP |
+| `audio` format | Defer | post-MVP |
+| `branding` format — full pipeline | FF | P5 (scoped) |
+| Action: `pdf` (render page to PDF) | Defer | — |
+| `onlyCleanContent` scrape param | MVP | **P3 — add** |
+| `parsers` (PDF fast/auto/ocr, maxPages) | FF | post-MVP |
+| `profile` (named browser session) scrape param | Defer | requires browser-session infra |
+| `useMock` scrape param | Skip | internal testing only |
+| `deduplicateSimilarURLs` crawl param | MVP | **P6 — add** |
+| `ignoreRobotsTxt` + `robotsUserAgent` crawl params | MVP | P7 (already scoped) |
+| `/crawl/ongoing` endpoint | FF | **P6 — add** |
+| `/crawl/params-preview` endpoint | FF | **P6 — add** |
+| `/search` per-source objects (not just string array) | MVP | **P7 — expand** |
+| `categories` in `/search` (github/research/pdf) | FF | P7 |
+| `enterprise` in `/search` (`default/anon/zdr`) | Defer | enterprise |
+| `/extract` `urlTrace`, `showSources`, `includeSubdomains` | FF | **P5 — add** |
+| `/activity` endpoint + Activity Logs page hydration | MVP | **P3 — add** |
+| `/concurrency-check` endpoint | MVP | **P4 — add for Concurrent Browsers widget** |
+| `/credit-usage` + `/credit-usage-historical` | MVP / FF | **P2 — add** (Overview + Usage page) |
+| `/token-usage` + `/token-usage-historical` | FF | P5 (once LLM tokens are tracked) |
+| `/generate-llmstxt` | FF | post-MVP |
+| `/deep-research` | Defer | — |
+| `/api/v1/agent*` | Defer | — |
+| `/api/v1/browser*` (persistent sessions) | Defer | — |
+| `appendToId` on batch scrape | MVP | **P6 — add** |
+| Per-team concurrency semaphore (`worker/team-semaphore`) | MVP | **P4 — add** |
+| **Idempotency-Key header** on all job-creating POSTs | MVP | **P3/P5/P6 — add** (24h Redis dedup) |
+| `integration` field on every request (e.g. `"langchain"`) | MVP | **P3 — add as optional analytics tag** |
+| DNS-resolution-error billed at 1 credit | FF | document in pricing |
+| FIRE-1 agent billing formula (token-cost × 1800) | Defer | when/if agent ships |
+
+### 11.19 Persistence divergence
+
+Firecrawl uses **Supabase** (managed Postgres) + **Redis** + **Clickhouse** (analytics). Peep uses **Neon Postgres + Prisma 7 + Redis** — no Clickhouse for v1 (roll Clickhouse-style analytics into a separate `UsageRollup` table if needed later).
 
 ---
 
