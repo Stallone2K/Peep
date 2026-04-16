@@ -126,6 +126,7 @@ model ScrapeJob {
   startedAt   DateTime?
   completedAt DateTime?
   createdAt   DateTime  @default(now())
+  integration String?
 
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   apiKey   ApiKey?       @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
@@ -139,17 +140,42 @@ model ScrapeJob {
 
 model ScrapeResult {
   jobId           String   @id
+  cacheKey        String?
   markdown        String?  @db.Text
+  html            String?  @db.Text
+  rawHtml         String?  @db.Text
   htmlR2Key       String?
   screenshotR2Key String?
+  images          String[]
   metadata        Json?
   extracted       Json?
   links           String[]
   pageStatus      Int?
   durationMs      Int?
+  fromCache       Boolean  @default(false)
   createdAt       DateTime @default(now())
 
   job ScrapeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([cacheKey, createdAt(sort: Desc)])
+}
+
+// Postgres-backed idempotency store. Mutations (POST /api/v1/scrape,
+// /crawl, /batch, /extract) accept an `Idempotency-Key` header; a
+// repeat with the same key+userId+bodyHash within 24h returns the
+// cached response body instead of running the mutation again.
+model IdempotencyRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  idempotencyKey String
+  bodyHash       String
+  responseBody   Json
+  statusCode     Int
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([userId, idempotencyKey])
+  @@index([expiresAt])
 }
 
 model CrawlJob {
