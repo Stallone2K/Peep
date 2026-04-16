@@ -37,7 +37,7 @@ export default function MarketingLayout({
             <NavItem label="Products" hasCaret href="/#scrape" />
             <NavItem label="Playground" href="/dashboard/playground" />
             <NavItem label="Docs" href="/docs" />
-            <NavItem label="Pricing" href="/#pricing" />
+            <NavItem label="Pricing" href="/pricing" />
             <NavItem label="Integrations" hasCaret href="/#integrations" />
             <NavItem label="Changelog" href="/changelog" />
           </nav>
@@ -81,7 +81,7 @@ export default function MarketingLayout({
               { href: "/#map", label: "Map" },
               { href: "/#extract", label: "Extract" },
               { href: "/#search", label: "Search" },
-              { href: "/#pricing", label: "Pricing" },
+              { href: "/pricing", label: "Pricing" },
             ]}
           />
           <FooterCol

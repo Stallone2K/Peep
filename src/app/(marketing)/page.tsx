@@ -43,7 +43,6 @@ export default function LandingPage() {
       <PowerYourAgent />
       <Core />
       <Integrations />
-      <Pricing />
       <Faq />
       <FinalCta />
     </>
@@ -61,7 +60,7 @@ function Hero() {
 
       <div className="mx-auto flex max-w-5xl flex-col items-center px-6 pt-20 pb-12 text-center sm:pt-28">
         <Link
-          href="/#pricing"
+          href="/sign-in"
           className="border-border/70 bg-card/60 hover:bg-card mb-10 inline-flex items-center gap-2 rounded-full border py-1 pr-1 pl-3 text-xs backdrop-blur transition-colors"
         >
           <span>500 Free Credits On Sign Up</span>
@@ -109,7 +108,7 @@ function Hero() {
 function MainFeatures() {
   return (
     <section className="mx-auto max-w-6xl px-6 py-24">
-      <SectionEyebrow index={1} total={6} label="Main Features" />
+      <SectionEyebrow index={1} total={5} label="Main Features" />
 
       <div className="flex flex-col items-center text-center">
         <SlashEyebrow icon={Wrench} label="Developer First" className="mb-6" />
@@ -140,7 +139,7 @@ function MainFeatures() {
 function PowerYourAgent() {
   return (
     <section className="mx-auto max-w-6xl px-6 py-24">
-      <SectionEyebrow index={2} total={6} label="Power Your Agent" />
+      <SectionEyebrow index={2} total={5} label="Power Your Agent" />
 
       <div className="flex flex-col items-center text-center">
         <SlashEyebrow icon={Wrench} label="Agent Ready" className="mb-6" />
@@ -235,7 +234,7 @@ pip install peep`}
 function Core() {
   return (
     <section className="mx-auto max-w-6xl px-6 py-24">
-      <SectionEyebrow index={3} total={6} label="Core" />
+      <SectionEyebrow index={3} total={5} label="Core" />
 
       <div className="flex flex-col items-center text-center">
         <SlashEyebrow icon={Cpu} label="Built For Performance" className="mb-6" />
@@ -312,7 +311,7 @@ function Integrations() {
       id="integrations"
       className="mx-auto max-w-6xl px-6 py-24"
     >
-      <SectionEyebrow index={4} total={6} label="Integrations" />
+      <SectionEyebrow index={4} total={5} label="Integrations" />
 
       <div className="grid gap-5 md:grid-cols-2">
         <div className="border-border/60 bg-card/30 relative flex min-h-[360px] flex-col justify-between overflow-hidden rounded-xl border p-8">
@@ -392,76 +391,7 @@ function Integrations() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Pricing (05 / 06)
-// ──────────────────────────────────────────────────────────────
-
-function Pricing() {
-  const tiers = [
-    { name: "Free", price: "$0", credits: "500", concurrency: "2" },
-    { name: "Hobby", price: "$19", credits: "3,000", concurrency: "5" },
-    {
-      name: "Standard",
-      price: "$99",
-      credits: "100,000",
-      concurrency: "50",
-      highlight: true,
-    },
-    { name: "Growth", price: "$399", credits: "500,000", concurrency: "100" },
-    { name: "Scale", price: "$749", credits: "1,000,000", concurrency: "150" },
-    {
-      name: "Enterprise",
-      price: "Custom",
-      credits: "Custom",
-      concurrency: "Custom",
-    },
-  ];
-  return (
-    <section id="pricing" className="mx-auto max-w-6xl px-6 py-24">
-      <SectionEyebrow index={5} total={6} label="Pricing" />
-
-      <div className="mb-16 flex flex-col items-center text-center">
-        <SlashEyebrow icon={Zap} label="Simple Credits" className="mb-6" />
-        <h2 className="text-balance text-5xl font-medium tracking-tight sm:text-6xl">
-          Start Free. <span className="text-orange-500">Scale</span> When You
-          Need To.
-        </h2>
-        <p className="text-muted-foreground mt-6 max-w-xl text-balance text-sm">
-          1 Credit ≈ 1 Page. JSON Extraction And Stealth Proxy Add Credits Per
-          Request. Paid Plans Refresh Monthly; Top-Up Packs Roll Over.
-        </p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        {tiers.map((t) => (
-          <div
-            key={t.name}
-            className={cn(
-              "border-border/60 bg-card/30 flex flex-col gap-3 rounded-lg border p-5",
-              t.highlight && "ring-1 ring-orange-500/60",
-            )}
-          >
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-medium">{t.name}</span>
-              {t.highlight ? (
-                <span className="font-mono text-[10px] uppercase tracking-wider text-orange-400">
-                  Popular
-                </span>
-              ) : null}
-            </div>
-            <div className="font-mono text-2xl">{t.price}</div>
-            <div className="text-muted-foreground space-y-1 text-xs">
-              <div>{t.credits} Credits / Mo</div>
-              <div>{t.concurrency} Concurrent</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────
-// FAQ (06 / 06)
+// FAQ (05 / 05)
 // ──────────────────────────────────────────────────────────────
 
 function Faq() {
@@ -485,7 +415,7 @@ function Faq() {
   ];
   return (
     <section className="mx-auto max-w-3xl px-6 py-24">
-      <SectionEyebrow index={6} total={6} label="FAQ" />
+      <SectionEyebrow index={5} total={5} label="FAQ" />
       <div className="mb-10 flex flex-col items-center text-center">
         <h2 className="text-balance text-5xl font-medium tracking-tight sm:text-6xl">
           Questions?
