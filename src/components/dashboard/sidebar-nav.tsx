@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
+  Antenna,
   BarChart3,
   Bot,
   ChevronDown,
@@ -83,7 +83,7 @@ const SECTIONS: Section[] = [
       {
         label: "Activity Logs",
         href: "/dashboard/activity-logs",
-        icon: Activity,
+        icon: Antenna,
       },
       { label: "Usage", href: "/dashboard/usage", icon: BarChart3 },
       { label: "API Keys", href: "/dashboard/api-keys", icon: KeyRound },
