@@ -1,16 +1,172 @@
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { Activity } from "lucide-react";
 
-import { ComingSoon } from "@/components/dashboard/coming-soon";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import {
+  WidgetCard,
+  WidgetHeader,
+} from "@/components/dashboard/widget-card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Activity Logs" };
 
 export default function ActivityLogsPage() {
   return (
-    <ComingSoon
-      title="Activity Logs"
-      description="Every API Call Your Keys Have Made, With Status, Credits Used, And Duration."
-      phase="Phase 3 (Scrape API)"
-      icon={Activity}
-    />
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Activity Logs</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Every Scrape Your Account Has Run, With Status, Duration, And
+          Credits. Most Recent First.
+        </p>
+      </div>
+      <Suspense fallback={<ActivitySkeleton />}>
+        <ActivityContent />
+      </Suspense>
+    </div>
   );
+}
+
+async function ActivityContent() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/sign-in");
+
+  const jobs = await db.scrapeJob.findMany({
+    where: { userId: session.user.id },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    select: {
+      id: true,
+      url: true,
+      status: true,
+      creditsUsed: true,
+      error: true,
+      startedAt: true,
+      completedAt: true,
+      createdAt: true,
+      integration: true,
+      apiKey: { select: { id: true, name: true, prefix: true } },
+    },
+  });
+
+  if (jobs.length === 0) {
+    return (
+      <div className="border-border/60 bg-card/20 flex flex-col items-center gap-4 rounded-lg border px-6 py-16 text-center">
+        <div className="border-border/60 flex size-12 items-center justify-center rounded-full border">
+          <Activity className="text-muted-foreground size-5" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-lg font-medium">No Activity Yet</h2>
+          <p className="text-muted-foreground max-w-md text-sm">
+            Run Your First Scrape From The Playground Or Hit /api/v1/scrape
+            With Your API Key. Calls Will Appear Here Within Seconds.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <WidgetCard>
+      <WidgetHeader
+        title="Recent Scrapes"
+        subtitle={`Showing ${jobs.length} Most Recent Job${jobs.length === 1 ? "" : "s"}.`}
+      />
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="border-border/60 text-muted-foreground border-t">
+            <tr>
+              <Th>When</Th>
+              <Th>URL</Th>
+              <Th>Status</Th>
+              <Th>Duration</Th>
+              <Th>Key</Th>
+              <Th>Integration</Th>
+              <Th className="text-right">Credits</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-border/40 divide-y">
+            {jobs.map((j) => {
+              const duration =
+                j.completedAt && j.startedAt
+                  ? j.completedAt.getTime() - j.startedAt.getTime()
+                  : null;
+              return (
+                <tr key={j.id}>
+                  <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                    {j.createdAt.toISOString().slice(0, 19).replace("T", " ")}
+                  </td>
+                  <td className="max-w-sm truncate px-4 py-2.5 font-mono text-xs">
+                    {j.url}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StatusBadge status={j.status} />
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                    {duration !== null ? `${duration}ms` : "—"}
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                    {j.apiKey?.prefix ?? "—"}
+                  </td>
+                  <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                    {j.integration ?? "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono">
+                    {j.creditsUsed}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </WidgetCard>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const tone =
+    status === "DONE"
+      ? "bg-emerald-500/15 text-emerald-300"
+      : status === "FAILED"
+        ? "bg-destructive/15 text-destructive"
+        : status === "CANCELLED"
+          ? "bg-muted text-muted-foreground"
+          : "bg-orange-500/15 text-orange-300"; // QUEUED / RUNNING
+  return (
+    <span
+      className={cn(
+        "rounded px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider",
+        tone,
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+
+function Th({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <th
+      className={cn(
+        "px-4 py-2.5 text-left font-mono text-[11px] font-medium uppercase tracking-wider",
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
+}
+
+function ActivitySkeleton() {
+  return <Skeleton className="h-96 w-full rounded-lg" />;
 }
