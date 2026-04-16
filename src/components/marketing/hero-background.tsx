@@ -50,15 +50,19 @@ export function HeroBackground() {
         ))}
       </div>
 
-      {/* Corner markers (imaginary frame registration marks) */}
+      {/* Corner registration marks anchored to the max-w-6xl content edges
+          (which coincide with grid lines, since 1152 / 96 = 12 cells).
+          Vertical positions sit on grid lines too. */}
       <div
         aria-hidden
-        className="text-muted-foreground/50 pointer-events-none absolute inset-0 -z-10 font-mono text-[11px] tracking-wider"
+        className="pointer-events-none absolute inset-0 -z-10"
       >
-        <span className="absolute top-6 left-6">[ 200 OK ]</span>
-        <span className="absolute top-6 right-6">[ SCRAPE ]</span>
-        <span className="absolute bottom-24 left-6">[ .JSON ]</span>
-        <span className="absolute bottom-24 right-6">[ .MD ]</span>
+        <div className="text-muted-foreground/60 font-mono text-[11px] tracking-wider mx-auto h-full max-w-6xl relative px-3">
+          <span className="absolute top-3 left-3">[ 200 OK ]</span>
+          <span className="absolute top-3 right-3">[ SCRAPE ]</span>
+          <span className="absolute bottom-28 left-3">[ .JSON ]</span>
+          <span className="absolute bottom-28 right-3">[ .MD ]</span>
+        </div>
       </div>
     </>
   );
