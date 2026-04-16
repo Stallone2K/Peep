@@ -6,6 +6,7 @@ import {
   Flame,
   Gauge,
   GitPullRequest,
+  MessageCircle,
   Paperclip,
   ShieldCheck,
   Sparkle,
@@ -18,6 +19,7 @@ import {
 import { Benchmark } from "@/components/marketing/benchmark";
 import { CodeCopyBlock } from "@/components/marketing/code-copy-block";
 import { CodePreview } from "@/components/marketing/code-preview";
+import { FaqItem } from "@/components/marketing/faq-item";
 import { FeatureCards } from "@/components/marketing/feature-cards";
 import { HeroBackground } from "@/components/marketing/hero-background";
 import {
@@ -397,16 +399,28 @@ function Integrations() {
 function Faq() {
   const faqs = [
     {
-      q: "What Is Peep, In One Sentence?",
-      a: "An API That Turns Any Web Page Into Clean Markdown, A Screenshot, Or Structured JSON — With JS Rendering, Proxies, Retries, And Caching Handled For You.",
+      q: "What Is Peep?",
+      a: "Peep Is An API That Turns Any Web Page Into Clean Markdown, A Screenshot, Or Structured JSON — With JS Rendering, Proxies, Retries, And Caching Handled For You.",
+    },
+    {
+      q: "What Can I Build With Peep?",
+      a: "RAG Pipelines, Lead Enrichment Tools, Price And Inventory Trackers, Deep-Research Agents, Content Monitors, And Any App That Needs Fresh Structured Data From The Web.",
+    },
+    {
+      q: "Why Do AI Agents Need Peep?",
+      a: "LLMs Can Read Text, But They Can't Fetch Pages, Bypass Bot Protection, Or Turn Messy HTML Into Clean JSON. Peep Handles All Of That Behind One Call So The Agent Can Focus On Reasoning.",
+    },
+    {
+      q: "What Are Scrape, Search, Crawl, And Extract?",
+      a: "Scrape Turns One URL Into Clean Data. Search Queries The Web And Optionally Pulls Full Content. Crawl Walks A Whole Site Under Filters. Extract Returns Typed JSON From One Or Many URLs With A Schema Or Prompt.",
+    },
+    {
+      q: "Does Peep Work With AI Agents And MCP Clients?",
+      a: "Yes. We Ship A Typed JS SDK, A Python SDK, A CLI, And An MCP Server So Claude, Cursor, Or Your Custom Agent Can Call Peep Tools Directly.",
     },
     {
       q: "Do You Honor robots.txt?",
       a: "Yes, By Default On Every Plan. Paid Tiers Can Opt Out Per Request With A Flag; Overrides Are Audit-Logged.",
-    },
-    {
-      q: "What Happens With Cloudflare / DataDome?",
-      a: "Peep Auto-Escalates From HTTP To A Headless Browser, Then To A Residential Stealth Proxy When Blocks Are Detected. You Pay The Stealth Premium Only If Stealth Actually Runs.",
     },
     {
       q: "Is There A Free Tier?",
@@ -414,23 +428,43 @@ function Faq() {
     },
   ];
   return (
-    <section className="mx-auto max-w-3xl px-6 py-24">
+    <section className="px-6 py-24">
       <SectionEyebrow index={5} total={5} label="FAQ" />
-      <div className="mb-10 flex flex-col items-center text-center">
-        <h2 className="text-balance text-5xl font-medium tracking-tight sm:text-6xl">
-          Questions?
-        </h2>
+
+      <div className="border-border/40 grid border-t md:grid-cols-2">
+        {/* Top-left: heading */}
+        <div className="px-10 py-16">
+          <SlashEyebrow
+            icon={MessageCircle}
+            label="FAQ"
+            className="mb-8"
+          />
+          <h2 className="text-balance text-5xl font-medium leading-[1.05] tracking-tight sm:text-6xl">
+            Frequently
+            <br />
+            Asked{" "}
+            <span className="text-orange-500">Questions</span>
+          </h2>
+          <p className="text-muted-foreground mt-6 text-base">
+            Everything You Need To Know About Peep.
+          </p>
+        </div>
+
+        {/* Top-right: empty (reserves grid cell) */}
+        <div className="border-border/40 border-l" />
+
+        {/* Bottom-left: category */}
+        <div className="border-border/40 border-t px-10 py-10">
+          <h3 className="text-2xl font-medium">General</h3>
+        </div>
+
+        {/* Bottom-right: accordion list */}
+        <div className="border-border/40 border-t border-l">
+          {faqs.map((f) => (
+            <FaqItem key={f.q} question={f.q} answer={f.a} />
+          ))}
+        </div>
       </div>
-      <ul className="divide-border/60 divide-y">
-        {faqs.map((f) => (
-          <li key={f.q} className="py-6">
-            <h3 className="mb-2 font-medium">{f.q}</h3>
-            <p className="text-muted-foreground text-sm leading-relaxed">
-              {f.a}
-            </p>
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }
