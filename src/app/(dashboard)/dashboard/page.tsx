@@ -1,89 +1,74 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
-import { auth, signOut } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { ApiKeyWidget } from "@/components/dashboard/api-key-widget";
+import { AgentIntegrations } from "@/components/dashboard/agent-integrations";
+import { ConcurrentBrowsers } from "@/components/dashboard/concurrent-browsers";
+import { ExploreEndpoints } from "@/components/dashboard/explore-endpoints";
+import { ScrapedPagesWidget } from "@/components/dashboard/scraped-pages-widget";
+import {
+  WidgetCard,
+  WidgetHeader,
+} from "@/components/dashboard/widget-card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata = {
-  title: "Dashboard",
+  title: "Overview",
 };
+
+// Hard-coded for Phase 2 — replace when billing lands in Phase 9.
+// Matches Firecrawl's Free-tier concurrency cap shown on /pricing.
+const CONCURRENCY_CAP = 2;
 
 export default function DashboardPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-6 py-16">
-      <Suspense fallback={<DashboardSkeleton />}>
-        <DashboardContent />
-      </Suspense>
-    </main>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
+      <ExploreEndpoints />
+
+      <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
+        <div className="flex flex-col gap-6">
+          {/* Static on server render. Real daily totals arrive in Phase 3. */}
+          <ScrapedPagesWidget total={0} days={7} />
+          <ConcurrentBrowsers active={0} cap={CONCURRENCY_CAP} />
+        </div>
+        <div className="flex flex-col gap-6">
+          <Suspense fallback={<ApiKeyWidgetSkeleton />}>
+            <ApiKeyWidgetServer />
+          </Suspense>
+          <AgentIntegrations />
+        </div>
+      </div>
+    </div>
   );
 }
 
-async function DashboardContent() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    redirect("/sign-in");
-  }
+// ──────────────────────────────────────────────────────────────
+// Data-fetching boundaries (Suspense-wrapped so Next 16
+// cacheComponents doesn't flag the route as blocking)
+// ──────────────────────────────────────────────────────────────
 
-  const user = await db.user.findUnique({
-    where: { id: session.user.id },
-    select: { email: true, name: true, creditBalance: true, planTier: true },
+async function ApiKeyWidgetServer() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/sign-in");
+
+  const key = await db.apiKey.findFirst({
+    where: { userId: session.user.id, revokedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { prefix: true },
   });
 
-  return (
-    <>
-      <header className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Signed In As {user?.email ?? session.user.email}
-          </p>
-        </div>
-        <form
-          action={async () => {
-            "use server";
-            await signOut({ redirectTo: "/" });
-          }}
-        >
-          <Button type="submit" variant="outline">
-            Sign Out
-          </Button>
-        </form>
-      </header>
-
-      <section className="border-border bg-card grid gap-4 rounded-lg border p-6">
-        <div className="flex items-baseline justify-between">
-          <span className="text-muted-foreground text-sm">Plan</span>
-          <span className="font-medium">{user?.planTier ?? "FREE"}</span>
-        </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-muted-foreground text-sm">Credits</span>
-          <span className="font-mono text-lg">
-            {user?.creditBalance?.toLocaleString() ?? 0}
-          </span>
-        </div>
-      </section>
-
-      <p className="text-muted-foreground text-sm">
-        Phase 1 Is Live. API Keys, Scraping, And The Playground Arrive In Phase
-        2 And Phase 3.
-      </p>
-    </>
-  );
+  return <ApiKeyWidget prefix={key?.prefix ?? null} />;
 }
 
-function DashboardSkeleton() {
+function ApiKeyWidgetSkeleton() {
   return (
-    <>
-      <header className="flex items-start justify-between">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-9 w-20" />
-      </header>
-      <Skeleton className="h-32 w-full rounded-lg" />
-    </>
+    <WidgetCard>
+      <WidgetHeader title="API Key" subtitle="Start Scraping Right Away" />
+      <div className="px-6 pb-6">
+        <Skeleton className="h-10 w-full rounded-md" />
+      </div>
+    </WidgetCard>
   );
 }
