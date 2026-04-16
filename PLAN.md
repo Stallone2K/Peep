@@ -659,6 +659,72 @@ Compliance footnote: log `respectRobotsTxt: false` invocations for audit; refuse
 
 ---
 
+## 11. Firecrawl upstream intel (from repo filename inspection)
+
+Captured during Phase 2 from a shallow clone of [firecrawl/firecrawl](https://github.com/firecrawl/firecrawl). The sandbox blocked file reads for agents, but filenames alone surface real features worth tracking before they catch us later.
+
+### 11.1 API versioning they actually ship
+- **v0** (legacy), **v1** (current, what our PLAN aligns to), **v2** (newest).
+- v2 adds: `agent`, `agent-signup`, `agent-signup-confirm`, `agent-cancel`, `agent-status`, `browser` (sessions), `scrape-browser`, `crawl-params-preview`, `f-search`.
+- Lesson: **build `/api/v1/*` in Peep, and leave a version prefix hook so v2 can coexist**. Don't hard-code paths outside the versioned namespace.
+
+### 11.2 Endpoints we don't have in PLAN
+| Firecrawl endpoint | In our PLAN? | Action |
+|---|---|---|
+| `deep-research` + `deep-research-status` | no | Add to §6 as **Defer** — agentic research over a topic |
+| `generate-llmstxt` + `status` | no | Add to §6 as **Fast-follow** — `/llms.txt` generator |
+| `concurrency-check` | no | Add as a dashboard-adjacent endpoint (Phase 2 addendum) |
+| `queue-status` | no | Internal; roll into `/admin/queues` (Phase 9 observability) |
+| `activity` | partially (we call it Activity Logs) | Already modelled as per-user job feed |
+| `credit-usage-historical`, `token-usage-historical` | no | Add to Usage page scope — time-series endpoints |
+| `crawl-ongoing` | no | Add to `/crawl` surface — list in-flight crawls |
+| `crawl-params-preview` | no | Add — "dry run" a crawl config |
+| `f-search` | unclear | Skip until we understand what "f-" prefix means |
+| `fireclaw` | unclear | Skip — likely Firecrawl-specific brand feature |
+| `x402-search` | no | Skip — HTTP 402 / crypto-paid search, niche |
+
+### 11.3 Scraper engines Firecrawl runs (under `apps/api/src/scraper/scrapeURL/engines/`)
+- **fetch** — HTTP-only (our Phase 3 fast path ✓)
+- **playwright** — headful rendering (our Phase 4 ✓)
+- **fire-engine** — Firecrawl's proprietary browser service (their equivalent of Browserless; Peep will use Bright Data stealth, Phase 7)
+- **pdf** — PDF parsing (Peep: **Defer**)
+- **document** — DOCX/XLSX/RTF/ODT via a Rust native addon (Peep: **Defer**)
+- **wikipedia** — special-case parser (Peep: **Defer**; Readability already handles MediaWiki reasonably)
+- **index** — cache-lookup engine (our Phase 3 `maxAge` cache ✓)
+
+### 11.4 Transformers (under `scrapeURL/transformers/`)
+- `llmExtract` — our Phase 5 `json` / `/extract` ✓
+- `agent` — Phase 5 defer
+- `audio` — defer
+- `diff` — Phase 7 changeTracking ✓
+- `performAttributes` — scroll/computed style extraction, maps to our `actions[]` (Phase 4)
+- `query` — unclear, likely post-extract filtering
+- `removeBase64Images` — ✓ already in scrape params
+- `sendToSearchIndex` — internal indexing for their own `/search`
+- `uploadScreenshot` — screenshot upload path (our R2 upload Phase 4 ✓)
+
+### 11.5 Backend services worth calling out
+- `billing/autumn/` — they use **Autumn** (autumn.so) as a billing-logic layer over Stripe. We plan to talk to Stripe directly; keep an eye on this for plan-change edge cases.
+- `idempotency/{create,validate}` — idempotency keys on mutation endpoints. **Add to Phase 3/6 scope** — every job-creating POST should accept an `Idempotency-Key` header.
+- `nuq/nuq-worker/nuq-reconciler-worker/nuq-prefetch-worker` — custom queue (not BullMQ). Cost-optimized version of what we do with BullMQ. Not a blocker; stick with BullMQ.
+- `redlock` — distributed locking on Redis. We'll need this when crawl workers race for the same host (Phase 6).
+- `agent-sponsor`, `agentLivecastWS` — agent live-view features; map to our `/crawl/:id/watch` WS scope.
+- `gcs-pdf-cache`, `gcs-jobs` — GCS for artifacts; our R2 plan is equivalent.
+
+### 11.6 Persistence
+- **Firecrawl uses Supabase + Redis**, not Prisma. Our Prisma 7 + Neon stack is a deliberate divergence — keep it, but accept that when we cite upstream schema we'll translate.
+
+### 11.7 SDK parity target
+- Firecrawl's SDKs (JS v1 + v2, Python v1 + v2, .NET, plus archived Rust/PHP/Java/Elixir) use a **method-per-endpoint** shape: `scrape`, `batch`, `crawl`, `map`, `extract`, `search`, `usage`, `browser`, `agent`, plus `watcher` / `watcher_async` for WS crawl streaming.
+- Our PLAN Phase 8 already has `@peep/sdk` matching this. No change.
+
+### 11.8 Things to circle back on
+- **Idempotency keys**: add to Phase 3's `/scrape` and Phase 6's `/crawl`/`/batch` POSTs. Pattern: `Idempotency-Key` header, dedupe in Redis for 24h, return cached response on replay.
+- **"Integration" field**: Firecrawl scrape types include an `integrationSchema` — likely tags scrapes with source integration (e.g. "langchain"). Useful for analytics; add as optional string in `ScrapeJob.options`.
+- **Crawl preview**: build a `/api/v1/crawl/preview` that runs sitemap + filters without enqueuing — helps users tune `includePaths` before committing credits.
+
+---
+
 ## Verification (end-to-end smoke test for each phase)
 
 | Phase | How to verify |
