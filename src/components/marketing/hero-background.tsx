@@ -1,5 +1,3 @@
-import { Sparkle } from "lucide-react";
-
 // Small pixel-art flecks that live inside grid cells
 // (faintly hinted squares, like rendered fragments of scraped data)
 const DECOS = [
@@ -75,17 +73,6 @@ export function HeroBackground() {
         <span className="absolute bottom-24 right-6">[ .MD ]</span>
       </div>
 
-      {/* Orange sparkles flanking the headline */}
-      <Sparkle
-        aria-hidden
-        strokeWidth={1.5}
-        className="absolute top-[22%] left-[18%] -z-10 size-6 fill-orange-500 text-orange-500"
-      />
-      <Sparkle
-        aria-hidden
-        strokeWidth={1.5}
-        className="absolute top-[26%] right-[18%] -z-10 size-6 fill-orange-500 text-orange-500"
-      />
     </>
   );
 }
