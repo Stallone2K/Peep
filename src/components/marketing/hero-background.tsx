@@ -3,13 +3,9 @@
 // <PageGrid /> so the graph paper continues beneath every section.
 
 const DECOS = [
-  { top: "8%", left: "50%", cells: 3 },
-  { top: "18%", left: "68%", cells: 5 },
-  { top: "30%", left: "7%", cells: 6 },
-  { top: "30%", left: "74%", cells: 4 },
-  { top: "52%", left: "30%", cells: 9 },
-  { top: "58%", left: "78%", cells: 5 },
-  { top: "70%", left: "15%", cells: 4 },
+  { top: "22%", left: "10%", cells: 6 },
+  { top: "32%", left: "82%", cells: 5 },
+  { top: "62%", left: "16%", cells: 4 },
 ];
 
 function PixelCluster({ cells }: { cells: number }) {

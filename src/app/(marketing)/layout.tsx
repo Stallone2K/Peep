@@ -28,9 +28,9 @@ export default function MarketingLayout({
         </div>
       </div>
 
-      {/* Nav — exactly one grid cell tall (96px) */}
+      {/* Nav — exactly one grid cell tall (144px) */}
       <header className="bg-background/70 border-border/60 sticky top-0 z-40 border-b backdrop-blur">
-        <div className="mx-auto flex h-24 max-w-6xl items-center justify-between px-6">
+        <div className="mx-auto flex h-36 max-w-6xl items-center justify-between px-6">
           <Link href="/" aria-label="Peep Home">
             <Logo />
           </Link>
