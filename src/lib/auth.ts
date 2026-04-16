@@ -7,7 +7,22 @@ import { db } from "@/lib/db";
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db),
-  providers: [Google, GitHub],
+  secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true,
+  // NextAuth v5 defaults to reading AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET
+  // (etc.) from env. Passing explicit clientId/clientSecret keeps the
+  // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET naming our .env has used
+  // since day one.
+  providers: [
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
+    GitHub({
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    }),
+  ],
   session: { strategy: "database" },
   pages: {
     signIn: "/sign-in",
