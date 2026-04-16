@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Inter } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 
 import "./globals.css";
@@ -15,13 +15,21 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Fallback for Suisse Intl on the marketing site until the .woff2 files land
+// in public/fonts/. See src/app/globals.css @font-face rules.
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
-    default: "Peep — AI-native web scraper",
+    default: "Peep — AI-Native Web Scraper",
     template: "%s · Peep",
   },
   description:
-    "One URL in, clean markdown and structured JSON out. An AI-native web scraper for developers.",
+    "One URL In, Clean Markdown And Structured JSON Out. The AI-Native Web Scraping API For Developers.",
 };
 
 export default function RootLayout({
@@ -32,7 +40,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`dark ${geistSans.variable} ${geistMono.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="bg-background text-foreground flex min-h-full flex-col font-sans">
         <SessionProvider>{children}</SessionProvider>

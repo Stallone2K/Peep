@@ -4,6 +4,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── Suisse Intl (commercial, user supplies .woff2) ───────── */
+/* Falls back to Inter → system-ui until /public/fonts/ files are placed. */
+@font-face {
+  font-family: "Suisse Intl";
+  src: url("/fonts/SuisseIntl-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Suisse Intl";
+  src: url("/fonts/SuisseIntl-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -127,4 +144,35 @@
   html {
     @apply font-sans;
   }
+}
+
+/* ─── Marketing display font stack ─────────────────────────── */
+.font-display {
+  font-family: "Suisse Intl", var(--font-inter), ui-sans-serif, system-ui,
+    sans-serif;
+  font-feature-settings: "ss01", "cv11";
+}
+
+/* ─── Subtle graph-paper grid background (for hero) ────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: center center;
+}
+
+.bg-grid-dots {
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.12) 1px,
+    transparent 1px
+  );
+  background-size: 64px 64px;
+  background-position: 32px 32px;
+}
+
+.mask-radial-fade {
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
 }

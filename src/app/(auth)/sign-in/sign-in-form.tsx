@@ -15,9 +15,9 @@ export function SignInForm() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="space-y-2 text-center">
-        <CardTitle className="text-2xl">Sign in to Peep</CardTitle>
+        <CardTitle className="text-2xl">Sign In To Peep</CardTitle>
         <CardDescription>
-          One URL in — clean markdown and structured JSON out.
+          One URL In — Clean Markdown And Structured JSON Out.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -26,14 +26,14 @@ export function SignInForm() {
           className="w-full"
           onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
         >
-          Continue with Google
+          Continue With Google
         </Button>
         <Button
           variant="outline"
           className="w-full"
           onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
         >
-          Continue with GitHub
+          Continue With GitHub
         </Button>
       </CardContent>
     </Card>

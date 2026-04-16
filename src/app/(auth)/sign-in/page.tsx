@@ -1,7 +1,7 @@
 import { SignInForm } from "./sign-in-form";
 
 export const metadata = {
-  title: "Sign in — Peep",
+  title: "Sign In",
 };
 
 export default function SignInPage() {

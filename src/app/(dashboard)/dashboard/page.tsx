@@ -37,7 +37,7 @@ async function DashboardContent() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Signed in as {user?.email ?? session.user.email}
+            Signed In As {user?.email ?? session.user.email}
           </p>
         </div>
         <form
@@ -47,7 +47,7 @@ async function DashboardContent() {
           }}
         >
           <Button type="submit" variant="outline">
-            Sign out
+            Sign Out
           </Button>
         </form>
       </header>
@@ -66,8 +66,8 @@ async function DashboardContent() {
       </section>
 
       <p className="text-muted-foreground text-sm">
-        Phase 1 is live. API keys, scraping, and the playground arrive in Phase
-        2 and Phase 3.
+        Phase 1 Is Live. API Keys, Scraping, And The Playground Arrive In Phase
+        2 And Phase 3.
       </p>
     </>
   );
