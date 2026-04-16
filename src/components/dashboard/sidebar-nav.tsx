@@ -6,6 +6,7 @@ import {
   Activity,
   BarChart3,
   Bot,
+  ChevronDown,
   ChevronLeft,
   FileText,
   Globe,
@@ -27,6 +28,7 @@ type Item = {
   icon: ComponentType<{ className?: string }>;
   badge?: string;
   disabled?: boolean;
+  expandable?: boolean;
 };
 
 type Section = {
@@ -61,6 +63,7 @@ const SECTIONS: Section[] = [
         label: "Crawl Entire Website",
         href: "/dashboard/playground/crawl",
         icon: Globe,
+        expandable: true,
       },
     ],
   },
@@ -153,6 +156,12 @@ export function SidebarNav({
                           {item.badge}
                         </span>
                       ) : null}
+                      {item.expandable ? (
+                        <ChevronDown
+                          aria-hidden
+                          className="size-3.5 opacity-50"
+                        />
+                      ) : null}
                     </Link>
                   </li>
                 );
@@ -171,8 +180,11 @@ export function SidebarNav({
             <FileText className="size-4" />
             <span>What&apos;s New</span>
           </span>
-          <span className="rounded bg-orange-500/20 px-1.5 py-0.5 font-mono text-[10px] text-orange-300">
-            {"NEW"}
+          {/* Pulsing dot when there are unseen changelog entries. Kept
+              silent until we have a real changelog feed. */}
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-orange-500 opacity-60" />
+            <span className="relative inline-flex size-2 rounded-full bg-orange-500" />
           </span>
         </button>
 

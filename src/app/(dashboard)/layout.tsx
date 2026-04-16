@@ -16,7 +16,7 @@ export default function DashboardLayout({
         <SidebarWithSession />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar teamName="Personal" />
+        <TopBar teamName="Personal Team" />
         <main className="min-w-0 flex-1 overflow-x-hidden">{children}</main>
       </div>
     </div>
