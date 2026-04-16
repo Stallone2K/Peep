@@ -14,9 +14,7 @@ export function Logo({
         className="inline-block size-5 rounded-full bg-white"
       />
       {showWordmark ? (
-        <span className="font-mono text-base font-semibold tracking-tight">
-          peep
-        </span>
+        <span className="text-base font-semibold tracking-tight">Peep</span>
       ) : null}
     </span>
   );
