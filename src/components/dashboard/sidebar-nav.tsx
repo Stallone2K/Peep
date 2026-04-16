@@ -10,12 +10,12 @@ import {
   ChevronLeft,
   FileText,
   Globe,
-  Home,
   KeyRound,
-  Link2,
+  LampDesk,
+  MousePointer,
   Search,
   Settings,
-  Sparkles,
+  Telescope,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -38,7 +38,7 @@ type Section = {
 
 const SECTIONS: Section[] = [
   {
-    items: [{ label: "Overview", href: "/dashboard", icon: Home }],
+    items: [{ label: "Overview", href: "/dashboard", icon: LampDesk }],
   },
   {
     label: "Playground",
@@ -51,12 +51,12 @@ const SECTIONS: Section[] = [
       {
         label: "Scrape A Web Page",
         href: "/dashboard/playground/scrape",
-        icon: Link2,
+        icon: Telescope,
       },
       {
         label: "Interact With A Page",
         href: "/dashboard/playground/interact",
-        icon: Sparkles,
+        icon: MousePointer,
         badge: "NEW",
       },
       {
