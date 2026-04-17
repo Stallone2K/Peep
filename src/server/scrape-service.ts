@@ -1,12 +1,13 @@
 import { db } from "@/lib/db";
 import { debitCredits, refundCredits } from "@/lib/credits";
 import { cacheKey, readCache } from "@/lib/scrape-cache";
+import { scrapeQueue } from "@/lib/queue";
+import { getRedisConnection } from "@/lib/queue";
 import { InternalError } from "@/lib/errors";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
-import { runScrape } from "@/server/scraper/formats";
+import { runScrapeWithStrategy, type ScrapeResult } from "@/server/scraper/strategy";
+import type { ScrapeJobData } from "@/workers/scrape.worker";
 
-// Flat cost per Phase 3 scrape. Upgrades arrive with json/stealth/
-// audio bonuses in later phases.
 const BASE_CREDITS = 1;
 
 export type ScrapeServiceResult = {
@@ -17,19 +18,23 @@ export type ScrapeServiceResult = {
   data: Record<string, unknown>;
 };
 
-// Shared core of the scrape pipeline — reused by the Bearer-auth
-// /api/v1/scrape endpoint and the session-auth /api/dashboard/
-// playground/scrape endpoint. Takes userId + apiKeyId explicitly so
-// the caller decides how auth works; everything downstream is the
-// same.
+// Shared scrape pipeline. Reused by:
+// - POST /api/v1/scrape (Bearer-auth)
+// - POST /api/dashboard/playground/scrape (session-auth)
+//
+// Phase 4 adds two modes:
+// - `inline: true` — runs synchronously in the request handler (Phase 3 legacy, still works)
+// - `inline: false` — enqueues to BullMQ, waits for worker completion via Redis pub/sub
 export async function performScrapeForUser({
   userId,
   apiKeyId,
   input,
+  async: asyncMode = false,
 }: {
   userId: string;
   apiKeyId: string | null;
   input: ScrapeRequestInput;
+  async?: boolean;
 }): Promise<ScrapeServiceResult> {
   const key = cacheKey(input);
   const cached = await readCache({
@@ -49,101 +54,223 @@ export async function performScrapeForUser({
       apiKeyId,
       url: input.url,
       options: input as never,
-      status: "RUNNING",
-      startedAt: new Date(),
+      status: cached ? "DONE" : "QUEUED",
+      startedAt: cached ? new Date() : undefined,
+      completedAt: cached ? new Date() : undefined,
       creditsUsed: BASE_CREDITS,
       integration: input.integration,
     },
   });
 
-  try {
-    const shouldStore = input.storeInCache !== false;
+  // ─── Cache hit path ─────────────────────────────────────────
+  if (cached) {
+    await db.scrapeResult.create({
+      data: {
+        jobId: job.id,
+        cacheKey: key,
+        markdown: cached.markdown,
+        html: cached.html,
+        rawHtml: cached.rawHtml,
+        htmlR2Key: cached.htmlR2Key,
+        screenshotR2Key: cached.screenshotR2Key,
+        links: cached.links,
+        images: cached.images,
+        metadata: cached.metadata as never,
+        pageStatus: cached.pageStatus,
+        durationMs: cached.durationMs,
+        fromCache: true,
+      },
+    });
 
-    if (cached) {
-      await db.$transaction([
-        db.scrapeResult.create({
-          data: {
-            jobId: job.id,
-            cacheKey: key,
-            markdown: cached.markdown,
-            html: cached.html,
-            rawHtml: cached.rawHtml,
-            htmlR2Key: cached.htmlR2Key,
-            screenshotR2Key: cached.screenshotR2Key,
-            links: cached.links,
-            images: cached.images,
-            metadata: cached.metadata as never,
-            pageStatus: cached.pageStatus,
-            durationMs: cached.durationMs,
-            fromCache: true,
-          },
-        }),
-        db.scrapeJob.update({
-          where: { id: job.id },
-          data: { status: "DONE", completedAt: new Date() },
-        }),
-      ]);
+    return {
+      success: true,
+      jobId: job.id,
+      creditsUsed: BASE_CREDITS,
+      cached: true,
+      data: {
+        markdown: cached.markdown ?? undefined,
+        html: cached.html ?? undefined,
+        rawHtml: cached.rawHtml ?? undefined,
+        links: cached.links,
+        images: cached.images,
+        screenshot: cached.screenshotR2Key ?? undefined,
+        pageStatus: cached.pageStatus ?? undefined,
+        durationMs: cached.durationMs ?? undefined,
+        metadata: { ...(cached.metadata as object), cached: true },
+      },
+    };
+  }
 
+  // ─── Decide: inline or queued ───────────────────────────────
+  const useQueue = isQueueAvailable();
+
+  if (useQueue) {
+    // Enqueue the job for the worker to pick up
+    const jobData: ScrapeJobData = {
+      scrapeJobId: job.id,
+      input,
+    };
+    await scrapeQueue().add(`scrape-${job.id}`, jobData, {
+      jobId: job.id,
+    });
+
+    // Async mode — return immediately with jobId for polling
+    if (asyncMode || input.async) {
       return {
         success: true,
         jobId: job.id,
         creditsUsed: BASE_CREDITS,
-        cached: true,
-        data: {
-          markdown: cached.markdown ?? undefined,
-          html: cached.html ?? undefined,
-          rawHtml: cached.rawHtml ?? undefined,
-          links: cached.links,
-          images: cached.images,
-          pageStatus: cached.pageStatus ?? undefined,
-          durationMs: cached.durationMs ?? undefined,
-          metadata: { ...(cached.metadata as object), cached: true },
-        },
+        cached: false,
+        data: { status: "queued", message: "Job enqueued. Poll GET /api/v1/scrape/:id for status." },
       };
     }
 
-    const out = await runScrape(input);
+    // Sync mode — wait for worker completion via Redis pub/sub (60s timeout)
+    const result = await waitForJobCompletion(job.id, input.timeout);
+    return result;
+  }
+
+  // ─── Inline fallback (no Redis / worker) ────────────────────
+  return runInline(job.id, key, input);
+}
+
+// Wait for a job to complete by subscribing to a Redis channel.
+// The worker publishes to `scrape:done:<jobId>` on completion.
+async function waitForJobCompletion(
+  jobId: string,
+  timeoutMs: number,
+): Promise<ScrapeServiceResult> {
+  const redis = getRedisConnection().duplicate();
+
+  return new Promise<ScrapeServiceResult>(async (resolve, reject) => {
+    const timer = setTimeout(async () => {
+      await redis.unsubscribe().catch(() => {});
+      redis.disconnect();
+      // Fall back to polling the DB
+      const jobRow = await db.scrapeJob.findUnique({
+        where: { id: jobId },
+        include: { result: true },
+      });
+      if (jobRow?.status === "DONE" && jobRow.result) {
+        resolve(formatDbResult(jobRow, jobRow.result));
+      } else {
+        reject(new InternalError("Scrape timed out waiting for worker"));
+      }
+    }, Math.min(timeoutMs + 5000, 65_000));
+
+    await redis.subscribe(`scrape:done:${jobId}`);
+    redis.on("message", async (_channel: string, message: string) => {
+      clearTimeout(timer);
+      await redis.unsubscribe().catch(() => {});
+      redis.disconnect();
+
+      const msg = JSON.parse(message);
+      if (msg.status === "FAILED") {
+        reject(new InternalError(msg.error || "Scrape failed in worker"));
+        return;
+      }
+
+      // Fetch the result from DB
+      const jobRow = await db.scrapeJob.findUnique({
+        where: { id: jobId },
+        include: { result: true },
+      });
+      if (jobRow?.result) {
+        resolve(formatDbResult(jobRow, jobRow.result));
+      } else {
+        reject(new InternalError("Job completed but result not found"));
+      }
+    });
+  });
+}
+
+function formatDbResult(
+  job: { id: string; creditsUsed: number },
+  result: NonNullable<Awaited<ReturnType<typeof db.scrapeResult.findFirst>>>,
+): ScrapeServiceResult {
+  return {
+    success: true,
+    jobId: job.id,
+    creditsUsed: job.creditsUsed,
+    cached: result.fromCache,
+    data: {
+      markdown: result.markdown ?? undefined,
+      html: result.html ?? undefined,
+      rawHtml: result.rawHtml ?? undefined,
+      links: result.links,
+      images: result.images,
+      screenshot: result.screenshotR2Key ?? undefined,
+      pageStatus: result.pageStatus ?? undefined,
+      durationMs: result.durationMs ?? undefined,
+      metadata: {
+        ...(result.metadata as object),
+        cached: result.fromCache,
+      },
+    },
+  };
+}
+
+// Inline execution (Phase 3 legacy — no queue, runs in route handler).
+// Still used when REDIS_URL is not configured or for the playground.
+async function runInline(
+  jobId: string,
+  cacheKeyStr: string,
+  input: ScrapeRequestInput,
+): Promise<ScrapeServiceResult> {
+  await db.scrapeJob.update({
+    where: { id: jobId },
+    data: { status: "RUNNING", startedAt: new Date() },
+  });
+
+  try {
+    const out = await runScrapeWithStrategy(input);
+    const shouldStore = input.storeInCache !== false;
 
     await db.$transaction([
       db.scrapeResult.create({
         data: {
-          jobId: job.id,
-          cacheKey: shouldStore ? key : null,
+          jobId,
+          cacheKey: shouldStore ? cacheKeyStr : null,
           markdown: out.markdown,
           html: out.html,
           rawHtml: out.rawHtml,
           links: out.links ?? [],
           images: out.images ?? [],
-          metadata: out.metadata as never,
+          metadata: {
+            ...out.metadata,
+            engineUsed: out.engineUsed,
+            proxyUsed: out.proxyUsed,
+          } as never,
           pageStatus: out.pageStatus,
           durationMs: out.durationMs,
           fromCache: false,
         },
       }),
       db.scrapeJob.update({
-        where: { id: job.id },
+        where: { id: jobId },
         data: { status: "DONE", completedAt: new Date() },
       }),
     ]);
 
     return {
       success: true,
-      jobId: job.id,
+      jobId,
       creditsUsed: BASE_CREDITS,
       cached: false,
-      data: { ...out, metadata: { ...out.metadata, cached: false } },
+      data: {
+        ...out,
+        metadata: { ...out.metadata, cached: false, engineUsed: out.engineUsed },
+      },
     };
   } catch (err) {
-    // Refund + mark FAILED. Best-effort so a rollback failure doesn't
-    // mask the original error.
-    await refundCredits(userId, BASE_CREDITS, {
+    await refundCredits("", BASE_CREDITS, {
       reason: "refund_failed_scrape",
       refType: "ScrapeJob",
-      refId: job.id,
+      refId: jobId,
     }).catch(() => {});
     await db.scrapeJob
       .update({
-        where: { id: job.id },
+        where: { id: jobId },
         data: {
           status: "FAILED",
           error: err instanceof Error ? err.message : String(err),
@@ -151,7 +278,11 @@ export async function performScrapeForUser({
         },
       })
       .catch(() => {});
-    if (err instanceof Error) throw err;
-    throw new InternalError(String(err));
+    throw err;
   }
+}
+
+// Check if the BullMQ queue is available (Redis configured + connectable).
+function isQueueAvailable(): boolean {
+  return !!process.env.REDIS_URL;
 }

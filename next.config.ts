@@ -8,6 +8,15 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
     ],
   },
+  serverExternalPackages: [
+    "playwright",
+    "playwright-core",
+    "playwright-extra",
+    "puppeteer-extra-plugin-stealth",
+    "@cliqz/adblocker-playwright",
+    "bullmq",
+    "ioredis",
+  ],
 };
 
 export default nextConfig;
