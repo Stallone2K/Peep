@@ -1,3 +1,8 @@
+// Load .env into process.env before anything else imports from it.
+// Next.js handles this automatically for the app, but plain `tsx` does
+// not, so the worker needs to wire it up itself.
+import "dotenv/config";
+
 import { startScrapeWorker } from "./scrape.worker";
 import { startExtractWorker } from "./extract.worker";
 import { BrowserPool } from "../server/scraper/browser";

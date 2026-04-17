@@ -1475,6 +1475,17 @@ Rewrite [src/app/api/v1/scrape/route.ts](src/app/api/v1/scrape/route.ts):
 - Bright Data residential proxies meter bandwidth (not requests) — a screenshot request can cost $0.05. Surface cost in `creditsUsed`.
 - `executeJavascript` is a foot-gun: sandbox execution time, never include in public-facing docs without warnings.
 
+### Worker + Redis dev-setup notes
+Lessons from the first end-to-end bring-up of `yarn worker`:
+
+- **Worker doesn't auto-load `.env`.** [src/workers/index.ts](src/workers/index.ts) must `import "dotenv/config"` as its very first statement — Next.js's env loader only runs for the app, not for plain `tsx`. Symptom without it: `Error: REDIS_URL is required for BullMQ` immediately on startup.
+- **Inline fallback when no worker is listening.** [src/server/scrape-service.ts](src/server/scrape-service.ts) calls `scrapeQueue().getWorkersCount()` before enqueuing. Zero workers → run inline (HTTP fetcher + Readability) instead of pushing into a queue nothing drains. This keeps `yarn dev` alone viable for dev + the playground responsive when Redis hiccups. Queue-path failures/timeouts also refund credits and mark the job `FAILED` (earlier code silently burned the debit).
+- **Upstash: use the TCP tab, not REST.** BullMQ connects over the `rediss://default:<password>@<host>:6379` wire-protocol URL found on the **TCP** tab. The REST tab gives `https://<host>.upstash.io` + bearer token for `@upstash/redis`, which Peep doesn't use. Strip `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` from `.env` — dead config creates setup confusion.
+- **Common Upstash copy pitfalls**:
+  - Dashboard masks the password (`********`) until you click the eye/copy control; copying the visible string verbatim lands a literal `********` in the URL → `WRONGPASS invalid username-password pair` from the server.
+  - Prepending `REDIS_URL=` in the pasted value (e.g. paste-over in an editor yielding `REDIS_URL=REDIS_URL=rediss://...`) produces `getaddrinfo ENOTFOUND` on a nonsense hostname.
+  - `.env` values don't need quotes; strip them if you pasted a quoted string from docs.
+
 ---
 
 ## Phase 5 — AI extraction with Claude (4-5 days)

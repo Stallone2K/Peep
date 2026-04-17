@@ -3,7 +3,7 @@ import { debitCredits, refundCredits } from "@/lib/credits";
 import { cacheKey, readCache } from "@/lib/scrape-cache";
 import { scrapeQueue } from "@/lib/queue";
 import { getRedisConnection } from "@/lib/queue";
-import { InternalError } from "@/lib/errors";
+import { ApiError, InternalError } from "@/lib/errors";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { runScrapeWithStrategy, type ScrapeResult } from "@/server/scraper/strategy";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
@@ -125,7 +125,19 @@ export async function performScrapeForUser({
   }
 
   // ─── Decide: inline or queued ───────────────────────────────
-  const useQueue = isQueueAvailable();
+  // Even with REDIS_URL set, we only use the queue if at least one
+  // worker is actively listening on `scrape`. This makes `yarn dev`
+  // (without `yarn worker`) Just Work — the API route runs the scrape
+  // inline instead of enqueuing into a void and timing out after 35s.
+  let useQueue = false;
+  if (isQueueAvailable()) {
+    try {
+      useQueue = (await scrapeQueue().getWorkersCount()) > 0;
+    } catch {
+      // Redis unreachable → inline fallback
+      useQueue = false;
+    }
+  }
 
   if (useQueue) {
     // Enqueue the job for the worker to pick up
@@ -133,9 +145,21 @@ export async function performScrapeForUser({
       scrapeJobId: job.id,
       input,
     };
-    await scrapeQueue().add(`scrape-${job.id}`, jobData, {
-      jobId: job.id,
-    });
+    try {
+      await scrapeQueue().add(`scrape-${job.id}`, jobData, {
+        jobId: job.id,
+      });
+    } catch {
+      // Enqueue failed (Redis hiccup) — fall back to inline rather
+      // than burning the user's credit on a job that never runs.
+      return runInline({
+        jobId: job.id,
+        userId,
+        cacheKeyStr: key,
+        input,
+        creditsCharged: creditsToCharge,
+      });
+    }
 
     // Async mode — return immediately with jobId for polling
     if (asyncMode || input.async) {
@@ -148,9 +172,29 @@ export async function performScrapeForUser({
       };
     }
 
-    // Sync mode — wait for worker completion via Redis pub/sub (60s timeout)
-    const result = await waitForJobCompletion(job.id, input.timeout);
-    return result;
+    // Sync mode — wait for worker via Redis pub/sub. Refund credits +
+    // mark the ScrapeJob FAILED if the wait errors out, so a stuck
+    // queue doesn't silently debit the caller.
+    try {
+      return await waitForJobCompletion(job.id, input.timeout);
+    } catch (err) {
+      await refundCredits(userId, creditsToCharge, {
+        reason: "refund_failed_scrape",
+        refType: "ScrapeJob",
+        refId: job.id,
+      }).catch(() => {});
+      await db.scrapeJob
+        .update({
+          where: { id: job.id },
+          data: {
+            status: "FAILED",
+            error: err instanceof Error ? err.message : String(err),
+            completedAt: new Date(),
+          },
+        })
+        .catch(() => {});
+      throw err;
+    }
   }
 
   // ─── Inline fallback (no Redis / worker) ────────────────────
@@ -319,7 +363,13 @@ async function runInline({
         },
       })
       .catch(() => {});
-    throw err;
+    // Re-throw as an ApiError so the route handler surfaces a real
+    // message (undici/playwright errors otherwise bucket into the
+    // generic "Something went wrong." catch-all in toJsonError).
+    if (err instanceof ApiError) throw err;
+    throw new InternalError(
+      err instanceof Error ? `Scrape failed: ${err.message}` : "Scrape failed",
+    );
   }
 }
 

@@ -358,6 +358,9 @@ Rewrite [src/app/api/v1/scrape/route.ts](src/app/api/v1/scrape/route.ts):
 - `LISTEN/NOTIFY` requires a **dedicated** pg client, not the Prisma one. Use a separate `pg` library connection, or fall back to 500ms polling on `ScrapeJob.status`.
 - Contexts leak memory if not closed — the pool's recycle-every-50 rule is not optional.
 - BullMQ's `Worker` and `Queue` need different Redis connection options (worker requires `maxRetriesPerRequest: null`).
+- **The worker process doesn't inherit Next.js's `.env` loading.** [src/workers/index.ts](src/workers/index.ts) must `import "dotenv/config"` as its very first line, otherwise `REDIS_URL` (and every other secret) is undefined when BullMQ instantiates. Symptom: `Error: REDIS_URL is required for BullMQ` on `yarn worker` startup.
+- **Inline fallback when no worker is listening.** [src/server/scrape-service.ts](src/server/scrape-service.ts) calls `scrapeQueue().getWorkersCount()` before enqueuing; if zero workers are registered on the `scrape` queue it runs the scrape inline instead of enqueuing into a void. Keeps `yarn dev` alone (without `yarn worker`) usable, and keeps the playground responsive when Redis is flaky. Queue-path failures also refund credits + mark the job `FAILED` (previously silent credit burn).
+- **Upstash URL = TCP tab, not REST tab.** BullMQ needs the `rediss://default:<password>@<host>:6379` wire-protocol URL from the **TCP** tab of the Upstash database page. The REST tab gives an `https://` URL + separate bearer token — that's for `@upstash/redis`, which this project doesn't use. Don't keep `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` in `.env` — they're dead config and cause confusion on setup.
 
 ---
 
