@@ -1,9 +1,4 @@
-import {
-  getAIClient,
-  DEFAULT_MODEL,
-  MAX_OUTPUT_TOKENS,
-  MAX_INPUT_CHARS,
-} from "@/server/ai/client";
+import { MAX_INPUT_CHARS, generateAI } from "@/server/ai/client";
 import { BRANDING_SYSTEM_PROMPT } from "@/server/ai/prompts";
 import { parseJsonFromResponse } from "@/server/ai/extract";
 
@@ -21,9 +16,6 @@ export async function extractBranding({
   markdown: string;
   rawHtml?: string;
 }): Promise<BrandingResult> {
-  const client = getAIClient();
-  if (!client) throw new Error("AI client not configured (GROQ_API_KEY missing)");
-
   // For branding, we want both the markdown (content) and a slice of
   // raw HTML (for CSS class names, inline styles, font references).
   const mdTruncated = markdown.slice(0, MAX_INPUT_CHARS / 2);
@@ -42,26 +34,13 @@ export async function extractBranding({
     .filter(Boolean)
     .join("\n");
 
-  const completion = await client.chat.completions.create({
-    model: DEFAULT_MODEL,
-    max_tokens: MAX_OUTPUT_TOKENS,
+  const { text, usage } = await generateAI({
+    systemPrompt: BRANDING_SYSTEM_PROMPT,
+    userMessage,
     temperature: 0,
-    messages: [
-      { role: "system", content: BRANDING_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
   });
 
-  const raw = completion.choices[0]?.message?.content ?? "";
-  const parsed = parseJsonFromResponse(raw) as Record<string, unknown>;
+  const parsed = parseJsonFromResponse(text) as Record<string, unknown>;
 
-  return {
-    branding: parsed,
-    tokensUsed: completion.usage
-      ? {
-          input: completion.usage.prompt_tokens ?? 0,
-          output: completion.usage.completion_tokens ?? 0,
-        }
-      : undefined,
-  };
+  return { branding: parsed, tokensUsed: usage };
 }

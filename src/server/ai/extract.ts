@@ -1,12 +1,7 @@
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 
-import {
-  getAIClient,
-  DEFAULT_MODEL,
-  MAX_OUTPUT_TOKENS,
-  MAX_INPUT_CHARS,
-} from "@/server/ai/client";
+import { MAX_INPUT_CHARS, generateAI } from "@/server/ai/client";
 import { EXTRACTION_SYSTEM_PROMPT } from "@/server/ai/prompts";
 
 const ajv = new Ajv({ strict: false, allErrors: true });
@@ -30,9 +25,6 @@ export async function extractStructured({
   prompt?: string;
   systemPrompt?: string;
 }): Promise<ExtractionResult> {
-  const client = getAIClient();
-  if (!client) throw new Error("AI client not configured (GROQ_API_KEY missing)");
-
   const truncated = markdown.slice(0, MAX_INPUT_CHARS);
 
   const userMessage = [
@@ -43,18 +35,13 @@ export async function extractStructured({
     .filter(Boolean)
     .join("\n\n");
 
-  const completion = await client.chat.completions.create({
-    model: DEFAULT_MODEL,
-    max_tokens: MAX_OUTPUT_TOKENS,
+  const { text, usage } = await generateAI({
+    systemPrompt: systemPrompt || EXTRACTION_SYSTEM_PROMPT,
+    userMessage,
     temperature: 0,
-    messages: [
-      { role: "system", content: systemPrompt || EXTRACTION_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
   });
 
-  const raw = completion.choices[0]?.message?.content ?? "";
-  const parsed = parseJsonFromResponse(raw);
+  const parsed = parseJsonFromResponse(text);
 
   // Validate against the user's schema
   const validate = ajv.compile(schema);
@@ -62,19 +49,13 @@ export async function extractStructured({
     throw new ExtractionValidationError(validate.errors);
   }
 
-  return {
-    data: parsed,
-    tokensUsed: completion.usage
-      ? {
-          input: completion.usage.prompt_tokens ?? 0,
-          output: completion.usage.completion_tokens ?? 0,
-        }
-      : undefined,
-  };
+  return { data: parsed, tokensUsed: usage };
 }
 
 // Extract JSON from an LLM response that might be wrapped in markdown
-// fences or have leading text.
+// fences or have leading text. Gemini's responseMimeType=json path
+// usually returns bare JSON; this is a safety net for any model we
+// swap in later that doesn't honor the MIME hint.
 export function parseJsonFromResponse(raw: string): unknown {
   let cleaned = raw.trim();
 

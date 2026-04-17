@@ -301,7 +301,7 @@ function buildResultFromHtml(opts: {
 
 // Apply AI-powered formats (json, summary, branding) on top of the
 // HTML-derived output. Each format is opt-in via formats[]. If AI is
-// not configured (GROQ_API_KEY missing), each failed format gets a
+// not configured (GEMINI_API_KEY missing), each failed format gets a
 // typed "unavailable" hint in the result metadata rather than
 // throwing — partial success is better than a 500.
 async function applyAIFormats(
@@ -331,7 +331,7 @@ async function applyAIFormats(
     base.metadata = {
       ...base.metadata,
       aiUnavailable:
-        "GROQ_API_KEY not set — json/summary/branding formats skipped",
+        "GEMINI_API_KEY not set — json/summary/branding formats skipped",
     };
     return base;
   }
