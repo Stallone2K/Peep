@@ -34,25 +34,42 @@ async function ActivityContent() {
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
-  const jobs = await db.scrapeJob.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    select: {
-      id: true,
-      url: true,
-      status: true,
-      creditsUsed: true,
-      error: true,
-      startedAt: true,
-      completedAt: true,
-      createdAt: true,
-      integration: true,
-      apiKey: { select: { id: true, name: true, prefix: true } },
-    },
-  });
+  const [jobs, crawls] = await Promise.all([
+    db.scrapeJob.findMany({
+      where: { userId: session.user.id, crawlJobId: null },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        url: true,
+        status: true,
+        creditsUsed: true,
+        error: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+        integration: true,
+        apiKey: { select: { id: true, name: true, prefix: true } },
+      },
+    }),
+    db.crawlJob.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        rootUrl: true,
+        status: true,
+        totalDiscovered: true,
+        totalCompleted: true,
+        createdAt: true,
+        completedAt: true,
+        _count: { select: { jobs: true } },
+      },
+    }),
+  ]);
 
-  if (jobs.length === 0) {
+  if (jobs.length === 0 && crawls.length === 0) {
     return (
       <div className="border-border/60 bg-card/20 flex flex-col items-center gap-4 rounded-lg border px-6 py-16 text-center">
         <div className="border-border/60 flex size-12 items-center justify-center rounded-full border">
@@ -70,10 +87,54 @@ async function ActivityContent() {
   }
 
   return (
-    <WidgetCard>
+    <>
+      {crawls.length > 0 ? (
+        <WidgetCard>
+          <WidgetHeader
+            title="Recent Crawls"
+            subtitle={`Showing ${crawls.length} Most Recent Crawl${crawls.length === 1 ? "" : "s"}. Each Crawl Enqueues Many Child Scrapes.`}
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-border/60 text-muted-foreground border-t">
+                <tr>
+                  <Th>When</Th>
+                  <Th>Root URL</Th>
+                  <Th>Status</Th>
+                  <Th>Progress</Th>
+                  <Th className="text-right">Children</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-border/40 divide-y">
+                {crawls.map((c) => (
+                  <tr key={c.id}>
+                    <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                      {c.createdAt.toISOString().slice(0, 19).replace("T", " ")}
+                    </td>
+                    <td className="max-w-sm truncate px-4 py-2.5 font-mono text-xs">
+                      {c.rootUrl}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={c.status} />
+                    </td>
+                    <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                      {c.totalCompleted}/{c.totalDiscovered}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono">
+                      {c._count.jobs}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </WidgetCard>
+      ) : null}
+
+      <WidgetCard>
       <WidgetHeader
         title="Recent Scrapes"
-        subtitle={`Showing ${jobs.length} Most Recent Job${jobs.length === 1 ? "" : "s"}.`}
+        subtitle={`Showing ${jobs.length} Most Recent Job${jobs.length === 1 ? "" : "s"}. Child Scrapes From Crawls Are Grouped Above.`}
       />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -124,6 +185,7 @@ async function ActivityContent() {
         </table>
       </div>
     </WidgetCard>
+    </>
   );
 }
 

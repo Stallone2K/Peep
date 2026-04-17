@@ -5,6 +5,7 @@ import "dotenv/config";
 
 import { startScrapeWorker } from "./scrape.worker";
 import { startExtractWorker } from "./extract.worker";
+import { startCrawlWorker } from "./crawl.worker";
 import { BrowserPool } from "../server/scraper/browser";
 
 // Worker entry point — runs as a separate Node process via
@@ -15,6 +16,7 @@ console.log("[worker] Starting Peep worker process...");
 
 const scrapeWorker = startScrapeWorker();
 const extractWorker = startExtractWorker();
+const crawlWorker = startCrawlWorker();
 
 // Graceful shutdown on SIGTERM / SIGINT (Fly.io sends SIGTERM on
 // deploy, Ctrl+C sends SIGINT locally). Drain in-flight jobs within
@@ -28,7 +30,11 @@ async function shutdown(signal: string) {
   }, 30_000);
 
   try {
-    await Promise.all([scrapeWorker.close(), extractWorker.close()]);
+    await Promise.all([
+      scrapeWorker.close(),
+      extractWorker.close(),
+      crawlWorker.close(),
+    ]);
     await BrowserPool.getInstance().shutdown();
     clearTimeout(timer);
     console.log("[worker] Drained cleanly. Exiting.");
