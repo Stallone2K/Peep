@@ -28,7 +28,7 @@ export function PlaygroundTabs() {
   const pathname = usePathname();
 
   return (
-    <div className="flex justify-center pt-4">
+    <div className="flex justify-center">
       <div
         role="tablist"
         aria-label="Playground endpoints"

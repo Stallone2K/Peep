@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
@@ -6,20 +7,35 @@ import {
   ScrapePlayground,
   type RecentRun,
 } from "@/components/dashboard/scrape-playground";
-import { PlaygroundTabs } from "@/components/dashboard/playground-tabs";
 
 export const metadata = { title: "Scrape — Playground" };
 
-export default async function ScrapePlaygroundPage() {
+// Next 16 Cache Components: uncached awaits (auth/db) have to live in
+// a child wrapped in <Suspense>, otherwise the whole route is flagged
+// as "blocking". Keeping the page shell sync + Suspense-wrapping the
+// data-fetching child mirrors the pattern used on /activity-logs and
+// /usage.
+export default function ScrapePlaygroundPage() {
+  return (
+    <div className="mx-auto w-full max-w-6xl px-6 pb-10">
+      <Suspense fallback={<ScrapePlayground recentRuns={[]} />}>
+        <ScrapePlaygroundContent />
+      </Suspense>
+    </div>
+  );
+}
+
+async function ScrapePlaygroundContent() {
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
-  // Pull the three most recent user-initiated scrapes (not crawl
-  // children) so the "Recent Runs" grid has real content.
+  // Keep a proper history window — grid wraps rows as needed, so the
+  // user can scroll back through recent runs instead of only seeing
+  // the last three.
   const rows = await db.scrapeJob.findMany({
     where: { userId: session.user.id, crawlJobId: null },
     orderBy: { createdAt: "desc" },
-    take: 3,
+    take: 12,
     select: {
       id: true,
       url: true,
@@ -38,14 +54,7 @@ export default async function ScrapePlaygroundPage() {
     formats: extractFormatIds(r.options),
   }));
 
-  return (
-    <div className="flex w-full flex-col">
-      <PlaygroundTabs />
-      <div className="mx-auto w-full max-w-6xl px-6 pb-10">
-        <ScrapePlayground recentRuns={recentRuns} />
-      </div>
-    </div>
-  );
+  return <ScrapePlayground recentRuns={recentRuns} />;
 }
 
 function extractFormatIds(options: unknown): RecentRun["formats"] {

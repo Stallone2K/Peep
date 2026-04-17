@@ -7,24 +7,33 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
+  Check as CheckIcon,
   Code2,
+  Copy,
   Crop,
+  Download,
   FileText,
   Globe,
   Image as ImageIcon,
   Images,
   Link2,
   Loader2,
+  Map as MapIcon,
+  MousePointer,
   Palette,
   Rows3,
+  Search as SearchIcon,
+  Share,
   SlidersHorizontal,
   Sparkles,
   Table as TableIcon,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { toast } from "sonner";
 
+import { PlaygroundTabs } from "@/components/dashboard/playground-tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -76,6 +85,26 @@ const DEFAULT_OPTIONS: Options = {
 
 // ─── Component ──────────────────────────────────────────────────
 
+type ScrapeResult = {
+  url: string;
+  data: {
+    markdown?: string;
+    html?: string;
+    rawHtml?: string;
+    links?: string[];
+    images?: string[];
+    screenshot?: string;
+    pageStatus?: number;
+    durationMs?: number;
+    json?: unknown;
+    summary?: string;
+    branding?: unknown;
+    metadata?: Record<string, unknown>;
+  };
+  creditsUsed: number;
+  cached: boolean;
+};
+
 export function ScrapePlayground({
   recentRuns,
 }: {
@@ -88,6 +117,7 @@ export function ScrapePlayground({
   );
   const [options, setOptions] = useState<Options>(DEFAULT_OPTIONS);
   const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<ScrapeResult | null>(null);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,6 +125,9 @@ export function ScrapePlayground({
     if (!trimmed) return;
 
     startTransition(async () => {
+      const fullUrl = trimmed.startsWith("http")
+        ? trimmed
+        : `https://${trimmed}`;
       const payload = buildApiPayload(trimmed, formats, options);
       const res = await fetch("/api/dashboard/playground/scrape", {
         method: "POST",
@@ -105,8 +138,15 @@ export function ScrapePlayground({
       if (!res.ok || !json.success) {
         const msg = json?.error?.message ?? "Scrape Failed";
         toast.error(msg);
+        setResult(null);
         return;
       }
+      setResult({
+        url: fullUrl,
+        data: json.data,
+        creditsUsed: json.creditsUsed,
+        cached: json.cached,
+      });
       toast.success(
         json.cached
           ? "Served From Cache"
@@ -119,115 +159,330 @@ export function ScrapePlayground({
   }
 
   return (
-    <div className="flex w-full flex-col gap-10">
-      <DecorativeFrame>
-        <form
-          onSubmit={submit}
-          className="mx-auto flex w-full max-w-xl flex-col gap-3"
-        >
-          {/* URL pill */}
-          <div className="border-border/60 bg-background/60 flex items-center rounded-full border pl-4 pr-2 py-2 shadow-sm">
-            <span className="bg-muted/60 text-muted-foreground rounded-full px-2.5 py-1 font-mono text-[11px]">
-              https://
-            </span>
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="example.com"
-              disabled={pending}
-              className="placeholder:text-muted-foreground/60 ml-3 flex-1 bg-transparent py-1 text-sm outline-none disabled:opacity-50"
-              aria-label="URL to scrape"
-            />
-          </div>
+    <div className="flex w-full flex-col">
+      {/* Centered stack: pill tabs → URL input → toolbar. No frame,
+          no lines. Pill sits tight above the input, input is wider
+          and taller than before. */}
+      <div className="flex w-full justify-center py-20">
+        <div className="flex w-full max-w-2xl flex-col items-center gap-3">
+          <PlaygroundTabs />
 
-          {/* Toolbar */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <OptionsPopover options={options} onChange={setOptions} />
-              <EnrichButton />
-              <FormatPopover formats={formats} onChange={setFormats} />
-            </div>
-            <div className="flex items-center gap-1.5">
-              <GetCodePopover
-                url={url}
-                formats={formats}
-                options={options}
+          <form onSubmit={submit} className="flex w-full flex-col gap-3">
+            {/* URL input — scaled up */}
+            <div className="border-border/60 bg-card/60 flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-sm">
+              <span className="bg-muted/70 text-muted-foreground rounded-lg px-3 py-1.5 font-mono text-xs">
+                https://
+              </span>
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="example.com"
+                disabled={pending}
+                className="placeholder:text-muted-foreground/60 flex-1 bg-transparent py-1 text-base outline-none disabled:opacity-50"
+                aria-label="URL to scrape"
               />
-              <button
-                type="submit"
-                disabled={pending || !url.trim()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-500/90 disabled:pointer-events-none disabled:opacity-50"
-              >
-                {pending ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin" /> Scraping
-                  </>
-                ) : (
-                  <>
-                    Start Scraping <ArrowRight className="size-3.5" />
-                  </>
-                )}
-              </button>
             </div>
-          </div>
-        </form>
-      </DecorativeFrame>
 
-      <section className="flex flex-col gap-4">
+            {/* Toolbar — independent buttons on background, no card */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <OptionsPopover options={options} onChange={setOptions} />
+                <EnrichButton />
+                <FormatPopover formats={formats} onChange={setFormats} />
+              </div>
+              <div className="flex items-center gap-2">
+                <GetCodePopover url={url} formats={formats} options={options} />
+                <button
+                  type="submit"
+                  disabled={pending || !url.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-500/90 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {pending ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" /> Scraping
+                    </>
+                  ) : (
+                    <>
+                      Start Scraping <ArrowRight className="size-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {result ? (
+        <div className="mx-auto w-full max-w-4xl px-2 pb-16">
+          <ScrapeResultCard result={result} />
+        </div>
+      ) : null}
+
+      <section className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 pb-12">
         <h2 className="text-lg font-medium">Recent Runs</h2>
-        <RecentRunsGrid runs={recentRuns} />
+        <RecentRunsCarousel runs={recentRuns} />
       </section>
     </div>
   );
 }
 
-// ─── Framed card with corner plus-markers ───────────────────────
+// ─── Scrape Result Card ─────────────────────────────────────────
 
-function DecorativeFrame({ children }: { children: React.ReactNode }) {
+function ScrapeResultCard({ result }: { result: ScrapeResult }) {
+  const host = safeHost(result.url) ?? result.url;
+  const favicon = `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
+  const metadata = (result.data.metadata ?? {}) as Record<string, unknown>;
+  const title =
+    (metadata.title as string | undefined) ??
+    (metadata.readabilityTitle as string | undefined) ??
+    host;
+
+  const [tab, setTab] = useState<"markdown" | "json">("markdown");
+  const markdown = result.data.markdown ?? "";
+  const jsonBody = JSON.stringify(
+    {
+      ...result.data,
+    },
+    null,
+    2,
+  );
+
   return (
-    <div className="relative mx-auto w-full max-w-4xl px-6 py-16">
-      {/* Horizontal axis lines */}
-      <span
-        aria-hidden
-        className="border-border/50 absolute inset-x-0 top-6 border-t border-dashed"
-      />
-      <span
-        aria-hidden
-        className="border-border/50 absolute inset-x-0 bottom-6 border-b border-dashed"
-      />
-      {/* Corner plus marks */}
-      <CornerMark className="left-4 top-4" />
-      <CornerMark className="right-4 top-4" />
-      <CornerMark className="bottom-4 left-4" />
-      <CornerMark className="bottom-4 right-4" />
+    <div className="relative mx-auto flex w-full max-w-4xl flex-col gap-5 px-2">
+      {/* Top row: favicon + host + Share */}
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 text-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={favicon} alt="" className="size-4" />
+          <span className="text-foreground">{host}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard.writeText(result.url);
+            toast.success("Link Copied");
+          }}
+          className="border-border/60 text-foreground hover:bg-muted/40 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors"
+        >
+          <Share className="size-3.5" />
+          Share
+        </button>
+      </div>
 
-      {children}
+      {/* Endpoint / Status grid */}
+      <div className="grid grid-cols-2 gap-8">
+        <InfoBlock label="Endpoint">
+          <EndpointBadge endpoint="scrape" />
+        </InfoBlock>
+        <InfoBlock label="Status">
+          <StatusPill status="DONE" />
+        </InfoBlock>
+      </div>
+
+      {/* Title + actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
+          <p className="text-muted-foreground text-xs">{host}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/dashboard/playground/interact?url=${encodeURIComponent(result.url)}`}
+            className="inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-500/90"
+          >
+            <MousePointer className="size-3.5" />
+            Interact With This Page
+            <span className="rounded bg-white/20 px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider">
+              New
+            </span>
+            <ArrowRight className="size-3" />
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            toast.info("Report Issue — Coming Soon")
+          }
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-xs"
+        >
+          <TriangleAlert className="size-3.5" />
+          Report Issue
+        </button>
+        <div className="flex items-center gap-2">
+          <DownloadButton
+            label="JSON"
+            disabled={!result.data.json && !markdown}
+            onClick={() =>
+              downloadFile(
+                `${host}.json`,
+                JSON.stringify(result.data, null, 2),
+                "application/json",
+              )
+            }
+          />
+          <DownloadButton
+            label="Markdown"
+            disabled={!markdown}
+            onClick={() => downloadFile(`${host}.md`, markdown, "text/markdown")}
+          />
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="border-border/60 flex items-center gap-1 border-b">
+        <TabButton
+          active={tab === "markdown"}
+          onClick={() => setTab("markdown")}
+        >
+          <FormatIconMarkdown active={tab === "markdown"} />
+          Markdown
+        </TabButton>
+        <TabButton active={tab === "json"} onClick={() => setTab("json")}>
+          <span
+            className={cn(
+              "inline-flex size-4 items-center justify-center rounded font-mono text-[10px]",
+              tab === "json"
+                ? "bg-muted text-foreground"
+                : "bg-muted/50 text-muted-foreground",
+            )}
+          >
+            {"{}"}
+          </span>
+          JSON
+        </TabButton>
+      </div>
+
+      <ResultContent
+        body={tab === "markdown" ? markdown : jsonBody}
+        copyLabel={tab === "markdown" ? "Copy As Markdown" : "Copy JSON"}
+      />
     </div>
   );
 }
 
-function CornerMark({ className }: { className?: string }) {
+function InfoBlock({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="text-sm">{children}</span>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "relative inline-flex items-center gap-2 px-3 py-2 text-sm transition-colors",
+        active
+          ? "text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-[1.5px] after:bg-foreground"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DownloadButton({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="border-border/60 text-foreground hover:bg-muted/40 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors disabled:pointer-events-none disabled:opacity-50"
+    >
+      <Download className="size-3.5" />
+      {label}
+    </button>
+  );
+}
+
+function ResultContent({
+  body,
+  copyLabel,
+}: {
+  body: string;
+  copyLabel: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="relative">
+      <pre className="border-border/60 bg-background/60 max-h-[520px] overflow-auto rounded-lg border p-5 font-mono text-[12px] leading-relaxed">
+        {body || "(Empty)"}
+      </pre>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard.writeText(body);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="border-border/60 bg-card/80 text-foreground hover:bg-muted absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors"
+      >
+        {copied ? (
+          <CheckIcon className="size-3.5" />
+        ) : (
+          <Copy className="size-3.5" />
+        )}
+        {copied ? "Copied" : copyLabel}
+      </button>
+    </div>
+  );
+}
+
+function FormatIconMarkdown({ active }: { active: boolean }) {
   return (
     <span
-      aria-hidden
-      className={cn("text-border/80 absolute leading-none", className)}
+      className={cn(
+        "inline-flex size-4 items-center justify-center rounded font-mono text-[9px] font-bold",
+        active ? "bg-orange-500 text-white" : "bg-muted/60 text-muted-foreground",
+      )}
     >
-      <svg
-        width="10"
-        height="10"
-        viewBox="0 0 10 10"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M5 0 V10 M0 5 H10"
-          stroke="currentColor"
-          strokeWidth="0.75"
-        />
-      </svg>
+      M↓
     </span>
   );
+}
+
+function downloadFile(name: string, body: string, mime: string) {
+  const blob = new Blob([body], { type: mime });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(href);
 }
 
 // ─── Options popover ────────────────────────────────────────────
@@ -681,17 +936,16 @@ function GetCodePopover({
 
 // ─── Recent Runs ────────────────────────────────────────────────
 
-function RecentRunsGrid({ runs }: { runs: RecentRun[] }) {
+function RecentRunsCarousel({ runs }: { runs: RecentRun[] }) {
   if (runs.length === 0) {
     return (
-      <div className="border-border/60 bg-card/20 text-muted-foreground rounded-lg border px-6 py-10 text-center text-sm">
-        No Runs Yet. Scrape A URL Above — Your Recent Three Runs Will
-        Appear Here.
+      <div className="border-border/60 bg-card/20 text-muted-foreground border px-6 py-12 text-center text-sm">
+        No Runs Yet. Scrape A URL Above — Your Recent Runs Will Appear Here.
       </div>
     );
   }
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
       {runs.map((run) => (
         <RecentRunCard key={run.id} run={run} />
       ))}
@@ -705,27 +959,34 @@ function RecentRunCard({ run }: { run: RecentRun }) {
     ? `https://www.google.com/s2/favicons?domain=${host}&sz=64`
     : null;
   const started = new Date(run.startedAt);
+  // Formats row is only meaningful for scrape runs; map/crawl/search
+  // don't expose one in the reference design.
+  const showFormats = run.endpoint === "scrape";
   return (
-    <div className="border-border/60 bg-card/30 rounded-lg border">
-      <div className="border-border/60 flex items-center gap-3 border-b px-4 py-3">
-        <span className="bg-muted/60 flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+    <div className="border-border/60 bg-card/30 hover:border-border flex flex-col border transition-colors">
+      <div className="border-border/60 flex items-center gap-3 border-b px-5 py-4">
+        <span className="bg-muted/60 flex size-7 shrink-0 items-center justify-center overflow-hidden rounded">
           {favicon ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={favicon} alt="" className="size-4" />
+          ) : run.endpoint === "search" ? (
+            <SearchIcon className="size-3.5 text-orange-400" />
           ) : (
-            <Globe className="text-muted-foreground size-3" />
+            <Globe className="text-muted-foreground size-3.5" />
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm">{host ?? run.url}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {host ?? run.url}
+        </span>
         <Link
           href={`/dashboard/activity-logs`}
           aria-label="Open run"
           className="text-muted-foreground hover:text-foreground"
         >
-          <ArrowUpRight className="size-3.5" />
+          <ArrowUpRight className="size-4" />
         </Link>
       </div>
-      <dl className="divide-border/40 divide-y text-xs">
+      <dl className="divide-border/40 flex flex-1 flex-col divide-y text-sm">
         <InfoRow label="Endpoint">
           <EndpointBadge endpoint={run.endpoint} />
         </InfoRow>
@@ -746,22 +1007,24 @@ function RecentRunCard({ run }: { run: RecentRun }) {
             })}
           </span>
         </InfoRow>
-        <InfoRow label="Formats" align="start">
-          {run.formats.length === 0 ? (
-            <span className="text-muted-foreground">No Formats Selected</span>
-          ) : (
-            <span className="flex flex-wrap justify-end gap-1">
-              {run.formats.slice(0, 3).map((fid) => (
-                <FormatChip key={fid} id={fid} />
-              ))}
-              {run.formats.length > 3 ? (
-                <span className="text-muted-foreground px-1 text-[11px]">
-                  +{run.formats.length - 3}
-                </span>
-              ) : null}
-            </span>
-          )}
-        </InfoRow>
+        {showFormats ? (
+          <InfoRow label="Formats" align="start">
+            {run.formats.length === 0 ? (
+              <span className="text-muted-foreground">No Formats Selected</span>
+            ) : (
+              <span className="flex flex-wrap justify-end gap-1.5">
+                {run.formats.slice(0, 3).map((fid) => (
+                  <FormatChip key={fid} id={fid} />
+                ))}
+                {run.formats.length > 3 ? (
+                  <span className="text-muted-foreground px-1 text-xs">
+                    +{run.formats.length - 3}
+                  </span>
+                ) : null}
+              </span>
+            )}
+          </InfoRow>
+        ) : null}
       </dl>
     </div>
   );
@@ -777,11 +1040,11 @@ function InfoRow({
   align?: "start" | "end";
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-4 py-3">
-      <dt className="text-muted-foreground text-xs">{label}</dt>
+    <div className="flex items-start justify-between gap-3 px-5 py-4">
+      <dt className="text-muted-foreground text-sm">{label}</dt>
       <dd
         className={cn(
-          "text-xs",
+          "text-sm",
           align === "end" ? "text-right" : "text-left",
         )}
       >
@@ -796,10 +1059,10 @@ function EndpointBadge({ endpoint }: { endpoint: RecentRun["endpoint"] }) {
     endpoint === "scrape"
       ? Rows3
       : endpoint === "map"
-        ? Link2
+        ? MapIcon
         : endpoint === "crawl"
           ? Globe
-          : FileText;
+          : SearchIcon;
   const label =
     endpoint === "scrape"
       ? "Scrape"
