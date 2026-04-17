@@ -196,6 +196,29 @@ model CrawlJob {
   @@index([status])
 }
 
+model ExtractJob {
+  id              String      @id @default(cuid())
+  userId          String
+  apiKeyId        String?
+  urls            String[]
+  prompt          String?     @db.Text
+  systemPrompt    String?     @db.Text
+  schema          Json?
+  enableWebSearch Boolean     @default(false)
+  status          JobStatus   @default(QUEUED)
+  creditsUsed     Int         @default(0)
+  error           String?
+  result          Json?
+  tokensUsed      Json?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  integration     String?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+}
+
 model CreditLedger {
   id        String   @id @default(cuid())
   userId    String

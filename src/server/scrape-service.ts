@@ -10,6 +10,28 @@ import type { ScrapeJobData } from "@/workers/scrape.worker";
 
 const BASE_CREDITS = 1;
 
+// Firecrawl billing rules (PLAN §11.12): json or changeTracking-json
+// format → 5 credits (replaces base). Other surcharges (audio/query
+// +4, stealth-proxy-used +4) are added to the charge by the worker
+// after the scrape completes. For the Phase 5 inline path we compute
+// the json surcharge upfront based on requested formats.
+function computeCredits(input: ScrapeRequestInput): number {
+  const hasJson = input.formats.some((f) => f.type === "json");
+  const changeTrackingFmt = input.formats.find(
+    (f) => f.type === "changeTracking",
+  ) as { modes?: string[] } | undefined;
+  const hasJsonChangeTracking = changeTrackingFmt?.modes?.includes("json");
+
+  if (hasJson || hasJsonChangeTracking) return 5;
+
+  let credits = BASE_CREDITS;
+  if (input.formats.some((f) => f.type === "query")) credits += 4;
+  if (input.formats.some((f) => f.type === "audio")) credits += 4;
+  if (input.formats.some((f) => f.type === "summary")) credits += 2;
+  if (input.formats.some((f) => f.type === "branding")) credits += 2;
+  return credits;
+}
+
 export type ScrapeServiceResult = {
   success: true;
   jobId: string;
@@ -43,7 +65,8 @@ export async function performScrapeForUser({
     minAgeMs: input.minAge,
   });
 
-  await debitCredits(userId, BASE_CREDITS, {
+  const creditsToCharge = computeCredits(input);
+  await debitCredits(userId, creditsToCharge, {
     reason: cached ? "scrape_cache_hit" : "scrape",
     refType: "ScrapeJob",
   });
@@ -57,7 +80,7 @@ export async function performScrapeForUser({
       status: cached ? "DONE" : "QUEUED",
       startedAt: cached ? new Date() : undefined,
       completedAt: cached ? new Date() : undefined,
-      creditsUsed: BASE_CREDITS,
+      creditsUsed: creditsToCharge,
       integration: input.integration,
     },
   });
@@ -85,7 +108,7 @@ export async function performScrapeForUser({
     return {
       success: true,
       jobId: job.id,
-      creditsUsed: BASE_CREDITS,
+      creditsUsed: creditsToCharge,
       cached: true,
       data: {
         markdown: cached.markdown ?? undefined,
@@ -119,7 +142,7 @@ export async function performScrapeForUser({
       return {
         success: true,
         jobId: job.id,
-        creditsUsed: BASE_CREDITS,
+        creditsUsed: creditsToCharge,
         cached: false,
         data: { status: "queued", message: "Job enqueued. Poll GET /api/v1/scrape/:id for status." },
       };
@@ -131,7 +154,13 @@ export async function performScrapeForUser({
   }
 
   // ─── Inline fallback (no Redis / worker) ────────────────────
-  return runInline(job.id, key, input);
+  return runInline({
+    jobId: job.id,
+    userId,
+    cacheKeyStr: key,
+    input,
+    creditsCharged: creditsToCharge,
+  });
 }
 
 // Wait for a job to complete by subscribing to a Redis channel.
@@ -212,11 +241,19 @@ function formatDbResult(
 
 // Inline execution (Phase 3 legacy — no queue, runs in route handler).
 // Still used when REDIS_URL is not configured or for the playground.
-async function runInline(
-  jobId: string,
-  cacheKeyStr: string,
-  input: ScrapeRequestInput,
-): Promise<ScrapeServiceResult> {
+async function runInline({
+  jobId,
+  userId,
+  cacheKeyStr,
+  input,
+  creditsCharged,
+}: {
+  jobId: string;
+  userId: string;
+  cacheKeyStr: string;
+  input: ScrapeRequestInput;
+  creditsCharged: number;
+}): Promise<ScrapeServiceResult> {
   await db.scrapeJob.update({
     where: { id: jobId },
     data: { status: "RUNNING", startedAt: new Date() },
@@ -240,6 +277,9 @@ async function runInline(
             ...out.metadata,
             engineUsed: out.engineUsed,
             proxyUsed: out.proxyUsed,
+            json: out.json,
+            summary: out.summary,
+            branding: out.branding,
           } as never,
           pageStatus: out.pageStatus,
           durationMs: out.durationMs,
@@ -255,7 +295,7 @@ async function runInline(
     return {
       success: true,
       jobId,
-      creditsUsed: BASE_CREDITS,
+      creditsUsed: creditsCharged,
       cached: false,
       data: {
         ...out,
@@ -263,7 +303,8 @@ async function runInline(
       },
     };
   } catch (err) {
-    await refundCredits("", BASE_CREDITS, {
+    // Refund the user's credits on failure
+    await refundCredits(userId, creditsCharged, {
       reason: "refund_failed_scrape",
       refType: "ScrapeJob",
       refId: jobId,

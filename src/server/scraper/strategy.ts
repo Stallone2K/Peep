@@ -15,6 +15,11 @@ import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
 import { uploadScreenshot, isR2Configured, getR2SignedUrl } from "@/lib/r2";
+import { extractStructured } from "@/server/ai/extract";
+import { inferSchemaAndExtract } from "@/server/ai/infer-schema";
+import { generateSummary } from "@/server/ai/summary";
+import { extractBranding } from "@/server/ai/branding";
+import { isAIConfigured } from "@/server/ai/client";
 
 export type EngineType = "http" | "playwright" | "proxy-playwright";
 
@@ -25,6 +30,9 @@ export type ScrapeResult = {
   links?: string[];
   images?: string[];
   screenshot?: string; // signed URL or null
+  json?: unknown;
+  summary?: string;
+  branding?: Record<string, unknown>;
   metadata: Record<string, unknown>;
   extracted?: unknown;
   pageStatus: number;
@@ -85,7 +93,7 @@ export async function runScrapeWithStrategy(
       // Escalate to Playwright
       engine = "playwright";
     } else {
-      return buildResultFromHtml({
+      const base = buildResultFromHtml({
         html: fetched.bodyText,
         statusCode: fetched.statusCode,
         finalUrl: fetched.finalUrl,
@@ -94,6 +102,7 @@ export async function runScrapeWithStrategy(
         start,
         engine: "http",
       });
+      return applyAIFormats(base, input, wantedTypes, fetched.bodyText);
     }
   }
 
@@ -182,7 +191,7 @@ export async function runScrapeWithStrategy(
         // For Phase 4 MVP: just return what we got with a blocked hint.
       }
 
-      const result = buildResultFromHtml({
+      const base = buildResultFromHtml({
         html: renderedHtml,
         statusCode,
         finalUrl,
@@ -191,9 +200,15 @@ export async function runScrapeWithStrategy(
         start,
         engine: engine as EngineType,
       });
+      const withAI = await applyAIFormats(
+        base,
+        input,
+        wantedTypes,
+        renderedHtml,
+      );
 
       return {
-        ...result,
+        ...withAI,
         screenshot: screenshotUrl,
         proxyUsed: proxyTier !== "basic" ? proxyTier : undefined,
         actionResults,
@@ -282,4 +297,113 @@ function buildResultFromHtml(opts: {
 
   result.durationMs = Date.now() - start;
   return result;
+}
+
+// Apply AI-powered formats (json, summary, branding) on top of the
+// HTML-derived output. Each format is opt-in via formats[]. If AI is
+// not configured (GROQ_API_KEY missing), each failed format gets a
+// typed "unavailable" hint in the result metadata rather than
+// throwing — partial success is better than a 500.
+async function applyAIFormats(
+  base: ScrapeResult,
+  input: ScrapeRequestInput,
+  wantedTypes: Set<string>,
+  rawHtml: string,
+): Promise<ScrapeResult> {
+  const needsAI =
+    wantedTypes.has("json") ||
+    wantedTypes.has("summary") ||
+    wantedTypes.has("branding");
+  if (!needsAI) return base;
+
+  // Compute markdown source for AI input. Prefer the markdown format
+  // if it's already in the result; otherwise render it on demand
+  // (AI needs markdown regardless of whether the user asked for it).
+  const mdForAI =
+    base.markdown ??
+    htmlToMarkdown(
+      input.onlyMainContent
+        ? (extractReadable(rawHtml, input.url)?.content ?? rawHtml)
+        : rawHtml,
+    );
+
+  if (!isAIConfigured()) {
+    base.metadata = {
+      ...base.metadata,
+      aiUnavailable:
+        "GROQ_API_KEY not set — json/summary/branding formats skipped",
+    };
+    return base;
+  }
+
+  // Run requested AI formats in parallel. Each Promise.allSettled
+  // entry either resolves with a value or rejects — we degrade
+  // gracefully per-format rather than failing the whole scrape.
+  const ops: Array<{ key: string; promise: Promise<unknown> }> = [];
+
+  if (wantedTypes.has("json")) {
+    const jsonFmt = input.formats.find((f) => f.type === "json") as
+      | { schema?: unknown; prompt?: string }
+      | undefined;
+
+    if (jsonFmt?.schema) {
+      ops.push({
+        key: "json",
+        promise: extractStructured({
+          markdown: mdForAI,
+          schema: jsonFmt.schema as Record<string, unknown>,
+          prompt: jsonFmt.prompt,
+          systemPrompt: input.extract?.systemPrompt,
+        }).then((r) => r.data),
+      });
+    } else if (jsonFmt?.prompt || input.extract?.prompt) {
+      // Schema-free mode — LLM infers schema from prompt
+      ops.push({
+        key: "json",
+        promise: inferSchemaAndExtract({
+          markdown: mdForAI,
+          prompt: jsonFmt?.prompt || input.extract?.prompt || "",
+        }),
+      });
+    }
+  }
+
+  if (wantedTypes.has("summary")) {
+    ops.push({
+      key: "summary",
+      promise: generateSummary({ markdown: mdForAI }).then((r) => r.summary),
+    });
+  }
+
+  if (wantedTypes.has("branding")) {
+    ops.push({
+      key: "branding",
+      promise: extractBranding({ markdown: mdForAI, rawHtml }).then(
+        (r) => r.branding,
+      ),
+    });
+  }
+
+  const results = await Promise.allSettled(ops.map((o) => o.promise));
+  const errors: Record<string, string> = {};
+
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]!;
+    const r = results[i]!;
+    if (r.status === "fulfilled") {
+      if (op.key === "json") base.json = r.value;
+      else if (op.key === "summary") base.summary = r.value as string;
+      else if (op.key === "branding")
+        base.branding = r.value as Record<string, unknown>;
+    } else {
+      errors[op.key] =
+        r.reason instanceof Error ? r.reason.message : String(r.reason);
+    }
+  }
+
+  if (Object.keys(errors).length > 0) {
+    base.metadata = { ...base.metadata, aiErrors: errors };
+  }
+
+  return base;
 }
