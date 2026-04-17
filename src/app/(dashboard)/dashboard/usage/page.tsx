@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { PLAN_SPEC } from "@/lib/plans";
+import { PeepCard } from "@/components/dashboard/peep-card";
 import { SpendSparkline } from "@/components/dashboard/spend-sparkline";
 import {
   WidgetCard,
@@ -45,7 +45,14 @@ async function UsageContent() {
   const [user, ledger, spendRows] = await Promise.all([
     db.user.findUnique({
       where: { id: session.user.id },
-      select: { creditBalance: true, planTier: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        createdAt: true,
+        creditBalance: true,
+        planTier: true,
+      },
     }),
     db.creditLedger.findMany({
       where: { userId: session.user.id },
@@ -87,29 +94,19 @@ async function UsageContent() {
     granted: v.granted,
   }));
 
-  const planSpec = PLAN_SPEC[user.planTier];
-  const monthlyAllotment =
-    typeof planSpec.monthlyCredits === "number"
-      ? planSpec.monthlyCredits
-      : null;
-
   return (
     <>
-      <div className="grid gap-6 md:grid-cols-4">
-        <Stat label="Current Balance" value={user.creditBalance.toLocaleString()} />
-        <Stat label="Plan" value={planSpec.name} />
-        <Stat
-          label="Monthly Allotment"
-          value={
-            monthlyAllotment ? monthlyAllotment.toLocaleString() : "Custom"
-          }
-          muted
-        />
-        <Stat
-          label={`Spent (Last ${SPEND_DAYS} Days)`}
-          value={periodSpend.toLocaleString()}
-          muted
-        />
+      <PeepCard
+        userId={user.id}
+        name={user.name}
+        email={user.email}
+        creditBalance={user.creditBalance}
+        planTier={user.planTier}
+        memberSince={user.createdAt}
+      />
+
+      <div className="text-muted-foreground -mt-2 text-center font-mono text-[11px] uppercase tracking-wider">
+        Spent {periodSpend.toLocaleString()} · Granted +{periodGrant.toLocaleString()} · Last {SPEND_DAYS} Days
       </div>
 
       <WidgetCard>
@@ -229,32 +226,6 @@ function formatShort(iso: string | undefined) {
   return `${parts[1]}/${parts[2]}`;
 }
 
-function Stat({
-  label,
-  value,
-  muted,
-}: {
-  label: string;
-  value: string;
-  muted?: boolean;
-}) {
-  return (
-    <div className="border-border/60 bg-card/20 rounded-lg border px-5 py-4">
-      <div className="text-muted-foreground font-mono text-[11px] uppercase tracking-wider">
-        {label}
-      </div>
-      <div
-        className={cn(
-          "mt-2 font-mono text-2xl",
-          muted && "text-muted-foreground",
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
-
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -290,12 +261,7 @@ function Th({
 function UsageSkeleton() {
   return (
     <>
-      <div className="grid gap-6 md:grid-cols-4">
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-24 rounded-lg" />
-        <Skeleton className="h-24 rounded-lg" />
-      </div>
+      <Skeleton className="mx-auto aspect-[1.586/1] w-full max-w-xl rounded-2xl" />
       <Skeleton className="h-48 rounded-lg" />
       <Skeleton className="h-64 rounded-lg" />
     </>
