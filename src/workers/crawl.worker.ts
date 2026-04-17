@@ -6,6 +6,7 @@ import { debitCredits } from "@/lib/credits";
 import { CrawlFrontier } from "@/server/crawl/frontier";
 import { compileFilter } from "@/server/crawl/filters";
 import { discoverSitemap } from "@/server/crawl/sitemap";
+import { emitWebhook } from "@/lib/webhooks";
 import type { CrawlRequestInput } from "@/lib/validators/crawl";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
@@ -66,6 +67,32 @@ async function runCrawlJob(
   await db.crawlJob.update({
     where: { id: crawlJobId },
     data: { status: "RUNNING" },
+  });
+
+  const webhookCfg = input.webhook ?? null;
+  const fireWebhook = (
+    event: "crawl.started" | "crawl.page" | "crawl.completed" | "crawl.failed",
+    data: Record<string, unknown>,
+  ) => {
+    if (!webhookCfg?.url) return Promise.resolve();
+    if (webhookCfg.events && !webhookCfg.events.includes(event)) {
+      return Promise.resolve();
+    }
+    return emitWebhook({
+      url: webhookCfg.url,
+      secret: webhookCfg.secret,
+      event,
+      userId: crawlJob.userId,
+      refType: "CrawlJob",
+      refId: crawlJobId,
+      data,
+    }).catch(() => {});
+  };
+
+  await fireWebhook("crawl.started", {
+    crawlJobId,
+    rootUrl: input.url,
+    limit: input.limit,
   });
 
   const filter = compileFilter({
@@ -155,11 +182,27 @@ async function runCrawlJob(
             include: { result: true },
           });
           const links = child?.result?.links ?? [];
+          await fireWebhook("crawl.page", {
+            crawlJobId,
+            scrapeJobId: c.scrapeJobId,
+            url: child?.url ?? null,
+            status: "done",
+            completed: totalCompleted,
+            total: totalEnqueued,
+          });
           for (const link of links) {
             if (totalEnqueued + frontier.size >= input.limit) break;
             if (!filter.shouldVisit(link)) continue;
             await frontier.add(link);
           }
+        } else {
+          await fireWebhook("crawl.page", {
+            crawlJobId,
+            scrapeJobId: c.scrapeJobId,
+            status: "failed",
+            completed: totalCompleted,
+            total: totalEnqueued,
+          });
         }
       }
 
@@ -289,6 +332,17 @@ async function runCrawlJob(
       },
     })
     .catch(() => {});
+
+  await fireWebhook(
+    finalStatus === "DONE" ? "crawl.completed" : "crawl.failed",
+    {
+      crawlJobId,
+      status: finalStatus.toLowerCase(),
+      totalDiscovered: frontier.totalDiscovered,
+      totalCompleted,
+      reason: failReason,
+    },
+  );
 
   console.log(
     `[crawl-worker] ${crawlJobId}: ${finalStatus} — ${totalCompleted}/${totalEnqueued} completed` +

@@ -24,6 +24,7 @@ let _scrapeQueue: Queue | null = null;
 let _crawlQueue: Queue | null = null;
 let _extractQueue: Queue | null = null;
 let _batchQueue: Queue | null = null;
+let _webhookQueue: Queue | null = null;
 
 const DEFAULT_JOB_OPTS = {
   attempts: 3,
@@ -70,4 +71,23 @@ export function batchQueue(): Queue {
     });
   }
   return _batchQueue;
+}
+
+// Webhook deliveries — 5 attempts exponential so a flaky receiver
+// gets retried without drowning us. `removeOnComplete` kept to 1h so
+// the dashboard can show recently-delivered events; failures stick
+// around 30d for debugging.
+export function webhookQueue(): Queue {
+  if (!_webhookQueue) {
+    _webhookQueue = new Queue("webhook", {
+      connection: getRedisConnection(),
+      defaultJobOptions: {
+        attempts: 5,
+        backoff: { type: "exponential" as const, delay: 5_000 },
+        removeOnComplete: { age: 3_600 },
+        removeOnFail: { age: 30 * 86_400 },
+      },
+    });
+  }
+  return _webhookQueue;
 }

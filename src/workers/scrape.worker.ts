@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getRedisConnection } from "@/lib/queue";
 import { runScrapeWithStrategy } from "@/server/scraper/strategy";
 import { uploadScreenshot, isR2Configured, getR2SignedUrl } from "@/lib/r2";
+import { emitWebhook } from "@/lib/webhooks";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? "3");
@@ -78,6 +79,11 @@ export function startScrapeWorker() {
           JSON.stringify({ jobId: scrapeJobId, status: "DONE" }),
         );
 
+        // Roll-up into parent BatchJob (if any) + fire webhooks.
+        await rollUpBatch(scrapeJobId, "DONE").catch((err) => {
+          console.error("[scrape-worker] batch roll-up failed", err);
+        });
+
         return { success: true, jobId: scrapeJobId };
       } catch (err) {
         // Mark FAILED
@@ -105,6 +111,9 @@ export function startScrapeWorker() {
           )
           .catch(() => {});
 
+        // Roll-up into parent BatchJob on failure too.
+        await rollUpBatch(scrapeJobId, "FAILED").catch(() => {});
+
         throw err; // BullMQ retry logic kicks in
       }
     },
@@ -127,4 +136,82 @@ export function startScrapeWorker() {
   );
 
   return worker;
+}
+
+// Post-completion: if this scrape was part of a batch, bump the parent
+// counter and (when the last child lands) mark the BatchJob DONE +
+// fire the batch.completed webhook. Race-safe because `increment` is
+// atomic at the DB level and only one UPDATE will observe
+// `completed + failed === total`.
+async function rollUpBatch(
+  scrapeJobId: string,
+  outcome: "DONE" | "FAILED",
+): Promise<void> {
+  const child = await db.scrapeJob.findUnique({
+    where: { id: scrapeJobId },
+    select: { batchJobId: true, userId: true, url: true },
+  });
+  if (!child?.batchJobId) return;
+
+  const counter = outcome === "DONE" ? "completed" : "failed";
+  const updated = await db.batchJob.update({
+    where: { id: child.batchJobId },
+    data: { [counter]: { increment: 1 } },
+    select: {
+      id: true,
+      total: true,
+      completed: true,
+      failed: true,
+      status: true,
+      webhookUrl: true,
+      webhookSecret: true,
+      userId: true,
+    },
+  });
+
+  // Per-page webhook (best effort — caller opted in at batch creation).
+  if (updated.webhookUrl) {
+    await emitWebhook({
+      url: updated.webhookUrl,
+      secret: updated.webhookSecret,
+      event: "batch.page",
+      userId: updated.userId,
+      refType: "BatchJob",
+      refId: updated.id,
+      data: {
+        batchJobId: updated.id,
+        scrapeJobId,
+        url: child.url,
+        status: outcome.toLowerCase(),
+        completed: updated.completed,
+        failed: updated.failed,
+        total: updated.total,
+      },
+    });
+  }
+
+  const finished = updated.completed + updated.failed;
+  if (finished >= updated.total && updated.status !== "DONE") {
+    await db.batchJob.update({
+      where: { id: updated.id },
+      data: { status: "DONE", completedAt: new Date() },
+    });
+
+    if (updated.webhookUrl) {
+      await emitWebhook({
+        url: updated.webhookUrl,
+        secret: updated.webhookSecret,
+        event: "batch.completed",
+        userId: updated.userId,
+        refType: "BatchJob",
+        refId: updated.id,
+        data: {
+          batchJobId: updated.id,
+          total: updated.total,
+          completed: updated.completed,
+          failed: updated.failed,
+        },
+      });
+    }
+  }
 }

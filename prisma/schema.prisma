@@ -28,6 +28,7 @@ model User {
   apiKeys    ApiKey[]
   scrapeJobs ScrapeJob[]
   crawlJobs  CrawlJob[]
+  batchJobs  BatchJob[]
   ledger     CreditLedger[]
 }
 
@@ -118,6 +119,7 @@ model ScrapeJob {
   userId      String
   apiKeyId    String?
   crawlJobId  String?
+  batchJobId  String?
   url         String
   options     Json
   status      JobStatus @default(QUEUED)
@@ -131,11 +133,13 @@ model ScrapeJob {
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   apiKey   ApiKey?       @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
   crawlJob CrawlJob?     @relation(fields: [crawlJobId], references: [id], onDelete: Cascade)
+  batchJob BatchJob?     @relation(fields: [batchJobId], references: [id], onDelete: Cascade)
   result   ScrapeResult?
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
   @@index([crawlJobId])
+  @@index([batchJobId])
 }
 
 model ScrapeResult {
@@ -188,6 +192,32 @@ model CrawlJob {
   totalCompleted  Int         @default(0)
   createdAt       DateTime    @default(now())
   completedAt     DateTime?
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs ScrapeJob[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+}
+
+// Parallel scrape of a list of URLs. Each child lands in the shared
+// scrape queue with batchJobId set; the scrape worker rolls
+// completion state back into BatchJob.completed, and the last child
+// fires the batch.completed webhook.
+model BatchJob {
+  id            String    @id @default(cuid())
+  userId        String
+  apiKeyId      String?
+  options       Json
+  total         Int
+  completed     Int       @default(0)
+  failed        Int       @default(0)
+  status        JobStatus @default(QUEUED)
+  webhookUrl    String?
+  webhookSecret String?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+  integration   String?
 
   user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobs ScrapeJob[]
