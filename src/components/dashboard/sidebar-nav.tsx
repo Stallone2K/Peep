@@ -5,11 +5,11 @@ import { usePathname } from "next/navigation";
 import {
   Antenna,
   BadgeDollarSign,
-  Bot,
   ChevronDown,
   ChevronLeft,
   FileText,
   Globe,
+  HardHat,
   KeyRound,
   LampDesk,
   MousePointer,
@@ -73,7 +73,7 @@ const SECTIONS: Section[] = [
       {
         label: "Agent",
         href: "/dashboard/agent",
-        icon: Bot,
+        icon: HardHat,
       },
     ],
   },
