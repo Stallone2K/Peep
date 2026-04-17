@@ -89,11 +89,33 @@ async function runCrawlJob(
     }).catch(() => {});
   };
 
-  await fireWebhook("crawl.started", {
-    crawlJobId,
-    rootUrl: input.url,
-    limit: input.limit,
-  });
+  // Publish to Redis pub/sub for SSE stream consumers. The SSE route
+  // subscribes to `crawl:event:<crawlJobId>` and forwards every
+  // message to the browser as an EventStream payload.
+  const publish = getRedisConnection();
+  const emitStream = (
+    event: "started" | "page" | "completed" | "failed",
+    data: Record<string, unknown>,
+  ) =>
+    publish
+      .publish(
+        `crawl:event:${crawlJobId}`,
+        JSON.stringify({ event, data, at: new Date().toISOString() }),
+      )
+      .catch(() => {});
+
+  await Promise.all([
+    fireWebhook("crawl.started", {
+      crawlJobId,
+      rootUrl: input.url,
+      limit: input.limit,
+    }),
+    emitStream("started", {
+      crawlJobId,
+      rootUrl: input.url,
+      limit: input.limit,
+    }),
+  ]);
 
   const filter = compileFilter({
     rootUrl: input.url,
@@ -182,27 +204,39 @@ async function runCrawlJob(
             include: { result: true },
           });
           const links = child?.result?.links ?? [];
-          await fireWebhook("crawl.page", {
+          const pagePayload = {
             crawlJobId,
             scrapeJobId: c.scrapeJobId,
             url: child?.url ?? null,
             status: "done",
             completed: totalCompleted,
             total: totalEnqueued,
-          });
+          };
+          await Promise.all([
+            fireWebhook("crawl.page", pagePayload),
+            emitStream("page", {
+              ...pagePayload,
+              title: (child?.result?.metadata as Record<string, unknown> | null)
+                ?.title as string | undefined,
+            }),
+          ]);
           for (const link of links) {
             if (totalEnqueued + frontier.size >= input.limit) break;
             if (!filter.shouldVisit(link)) continue;
             await frontier.add(link);
           }
         } else {
-          await fireWebhook("crawl.page", {
+          const pagePayload = {
             crawlJobId,
             scrapeJobId: c.scrapeJobId,
             status: "failed",
             completed: totalCompleted,
             total: totalEnqueued,
-          });
+          };
+          await Promise.all([
+            fireWebhook("crawl.page", pagePayload),
+            emitStream("page", pagePayload),
+          ]);
         }
       }
 
@@ -333,16 +367,20 @@ async function runCrawlJob(
     })
     .catch(() => {});
 
-  await fireWebhook(
-    finalStatus === "DONE" ? "crawl.completed" : "crawl.failed",
-    {
-      crawlJobId,
-      status: finalStatus.toLowerCase(),
-      totalDiscovered: frontier.totalDiscovered,
-      totalCompleted,
-      reason: failReason,
-    },
-  );
+  const finalPayload = {
+    crawlJobId,
+    status: finalStatus.toLowerCase(),
+    totalDiscovered: frontier.totalDiscovered,
+    totalCompleted,
+    reason: failReason,
+  };
+  await Promise.all([
+    fireWebhook(
+      finalStatus === "DONE" ? "crawl.completed" : "crawl.failed",
+      finalPayload,
+    ),
+    emitStream(finalStatus === "DONE" ? "completed" : "failed", finalPayload),
+  ]);
 
   console.log(
     `[crawl-worker] ${crawlJobId}: ${finalStatus} — ${totalCompleted}/${totalEnqueued} completed` +

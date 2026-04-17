@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { urlSchema, cursorSchema } from "@/lib/validators/common";
+import { urlSchema, cursorSchema, boundedString } from "@/lib/validators/common";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
 
 // Crawl request — Firecrawl parity. `includePaths`/`excludePaths` are
@@ -12,6 +12,12 @@ import { scrapeRequestSchema } from "@/lib/validators/scrape";
 
 export const crawlRequestSchema = z.object({
   url: urlSchema,
+
+  // Natural-language description of what to crawl. If present, Gemini
+  // translates it into includePaths / excludePaths / limit etc. The
+  // translation is merged UNDER the user's explicit fields so
+  // caller-specified values always win.
+  prompt: boundedString(1, 2_000).optional(),
 
   // Scope
   limit: z.number().int().positive().max(50_000).default(10_000),
