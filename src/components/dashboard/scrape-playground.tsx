@@ -1,293 +1,934 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { ArrowRight, Check, Copy, Link2, Loader2 } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  Code2,
+  Crop,
+  FileText,
+  Globe,
+  Image as ImageIcon,
+  Images,
+  Link2,
+  Loader2,
+  Palette,
+  Rows3,
+  SlidersHorizontal,
+  Sparkles,
+  Table as TableIcon,
+  X,
+} from "lucide-react";
+import type { ComponentType } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
-type ScrapeResult = {
-  success: true;
-  data: Record<string, unknown>;
-  jobId: string;
-  creditsUsed: number;
-  cached: boolean;
+// ─── Types ──────────────────────────────────────────────────────
+
+type FormatId =
+  | "markdown"
+  | "summary"
+  | "links"
+  | "html"
+  | "rawHtml"
+  | "screenshot"
+  | "screenshotFull"
+  | "json"
+  | "branding"
+  | "images";
+
+export type RecentRun = {
+  id: string;
+  url: string;
+  status: "DONE" | "FAILED" | "RUNNING" | "QUEUED" | "CANCELLED";
+  endpoint: "scrape" | "map" | "crawl" | "search";
+  startedAt: string; // ISO
+  formats: FormatId[];
 };
 
-const FORMATS = [
-  { id: "markdown", label: "Markdown" },
-  { id: "html", label: "HTML" },
-  { id: "rawHtml", label: "Raw HTML" },
-  { id: "links", label: "Links" },
-  { id: "images", label: "Images" },
-  { id: "screenshot", label: "Screenshot" },
-] as const;
+type Options = {
+  onlyMainContent: boolean;
+  parsePdf: boolean;
+  enhancedMode: boolean;
+  waitMs: number;
+  timeoutMs: number;
+  maxAgeMs: number;
+  includeTags: string[];
+  excludeTags: string[];
+};
 
-export function ScrapePlayground() {
+const DEFAULT_OPTIONS: Options = {
+  onlyMainContent: true,
+  parsePdf: false,
+  enhancedMode: false,
+  waitMs: 0,
+  timeoutMs: 30_000,
+  maxAgeMs: 2 * 86_400_000,
+  includeTags: [],
+  excludeTags: [],
+};
+
+// ─── Component ──────────────────────────────────────────────────
+
+export function ScrapePlayground({
+  recentRuns,
+}: {
+  recentRuns: RecentRun[];
+}) {
+  const router = useRouter();
   const [url, setUrl] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(["markdown", "links"]),
+  const [formats, setFormats] = useState<Set<FormatId>>(
+    new Set(["markdown"]),
   );
-  const [onlyMainContent, setOnlyMainContent] = useState(true);
-  const [result, setResult] = useState<ScrapeResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [options, setOptions] = useState<Options>(DEFAULT_OPTIONS);
   const [pending, startTransition] = useTransition();
-
-  function toggleFormat(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      if (next.size === 0) next.add("markdown"); // require at least one
-      return next;
-    });
-  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    setResult(null);
-    setError(null);
-
     const trimmed = url.trim();
     if (!trimmed) return;
 
     startTransition(async () => {
+      const payload = buildApiPayload(trimmed, formats, options);
       const res = await fetch("/api/dashboard/playground/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: trimmed,
-          formats: [...selected],
-          onlyMainContent,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
         const msg = json?.error?.message ?? "Scrape Failed";
-        setError(msg);
         toast.error(msg);
         return;
       }
-      setResult(json as ScrapeResult);
       toast.success(
-        json.cached ? "Served From Cache" : "Scraped In " +
-          ((json.data?.durationMs as number) ?? 0) + "ms",
+        json.cached
+          ? "Served From Cache"
+          : `Scraped In ${(json.data?.durationMs as number) ?? 0}ms`,
       );
+      // Refresh so the server component pulls the fresh row into
+      // Recent Runs.
+      router.refresh();
     });
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <form
-        onSubmit={submit}
-        className="border-border/60 bg-card/40 flex flex-col gap-4 rounded-lg border p-5"
-      >
-        <div className="flex items-center gap-2">
-          <Link2 className="text-muted-foreground size-4 shrink-0" />
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com"
-            disabled={pending}
-            className="placeholder:text-muted-foreground flex-1 bg-transparent py-2 text-base outline-none disabled:opacity-50"
-          />
-          <Button type="submit" disabled={pending || !url.trim()}>
-            {pending ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" /> Scraping
-              </>
-            ) : (
-              <>
-                Scrape <ArrowRight className="size-3.5" />
-              </>
-            )}
-          </Button>
-        </div>
+    <div className="flex w-full flex-col gap-10">
+      <DecorativeFrame>
+        <form
+          onSubmit={submit}
+          className="mx-auto flex w-full max-w-xl flex-col gap-3"
+        >
+          {/* URL pill */}
+          <div className="border-border/60 bg-background/60 flex items-center rounded-full border pl-4 pr-2 py-2 shadow-sm">
+            <span className="bg-muted/60 text-muted-foreground rounded-full px-2.5 py-1 font-mono text-[11px]">
+              https://
+            </span>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="example.com"
+              disabled={pending}
+              className="placeholder:text-muted-foreground/60 ml-3 flex-1 bg-transparent py-1 text-sm outline-none disabled:opacity-50"
+              aria-label="URL to scrape"
+            />
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+          {/* Toolbar */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <OptionsPopover options={options} onChange={setOptions} />
+              <EnrichButton />
+              <FormatPopover formats={formats} onChange={setFormats} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <GetCodePopover
+                url={url}
+                formats={formats}
+                options={options}
+              />
+              <button
+                type="submit"
+                disabled={pending || !url.trim()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-500/90 disabled:pointer-events-none disabled:opacity-50"
+              >
+                {pending ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" /> Scraping
+                  </>
+                ) : (
+                  <>
+                    Start Scraping <ArrowRight className="size-3.5" />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </form>
+      </DecorativeFrame>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-lg font-medium">Recent Runs</h2>
+        <RecentRunsGrid runs={recentRuns} />
+      </section>
+    </div>
+  );
+}
+
+// ─── Framed card with corner plus-markers ───────────────────────
+
+function DecorativeFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative mx-auto w-full max-w-4xl px-6 py-16">
+      {/* Horizontal axis lines */}
+      <span
+        aria-hidden
+        className="border-border/50 absolute inset-x-0 top-6 border-t border-dashed"
+      />
+      <span
+        aria-hidden
+        className="border-border/50 absolute inset-x-0 bottom-6 border-b border-dashed"
+      />
+      {/* Corner plus marks */}
+      <CornerMark className="left-4 top-4" />
+      <CornerMark className="right-4 top-4" />
+      <CornerMark className="bottom-4 left-4" />
+      <CornerMark className="bottom-4 right-4" />
+
+      {children}
+    </div>
+  );
+}
+
+function CornerMark({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn("text-border/80 absolute leading-none", className)}
+    >
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M5 0 V10 M0 5 H10"
+          stroke="currentColor"
+          strokeWidth="0.75"
+        />
+      </svg>
+    </span>
+  );
+}
+
+// ─── Options popover ────────────────────────────────────────────
+
+function OptionsPopover({
+  options,
+  onChange,
+}: {
+  options: Options;
+  onChange: (next: Options) => void;
+}) {
+  function set<K extends keyof Options>(key: K, value: Options[K]) {
+    onChange({ ...options, [key]: value });
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        className={cn(
+          "border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 inline-flex size-8 items-center justify-center rounded-md border transition-colors",
+        )}
+        aria-label="Scrape options"
+      >
+        <SlidersHorizontal className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent className="w-[380px]">
+        <div className="border-border/60 flex items-center justify-between border-b px-4 py-3">
+          <span className="text-sm font-medium">Options</span>
+          <Popover>
+            <PopoverTrigger
+              aria-label="Close"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </PopoverTrigger>
+          </Popover>
+        </div>
+        <div className="flex flex-col gap-4 px-4 py-4">
+          <ToggleRow
+            icon={FileText}
+            label="Main Content Only"
+            checked={options.onlyMainContent}
+            onChange={(v) => set("onlyMainContent", v)}
+          />
+          <ToggleRow
+            icon={BookOpen}
+            label="Parse PDF"
+            hint="1 Credit / PDF Page"
+            checked={options.parsePdf}
+            onChange={(v) => set("parsePdf", v)}
+          />
+          <ToggleRow
+            icon={Sparkles}
+            label="Enhanced Mode"
+            hint="5 Credits / Page"
+            checked={options.enhancedMode}
+            onChange={(v) => set("enhancedMode", v)}
+          />
+          <TagRow
+            label="Exclude Tags"
+            values={options.excludeTags}
+            onAdd={(v) => set("excludeTags", [...options.excludeTags, v])}
+            onRemove={(v) =>
+              set(
+                "excludeTags",
+                options.excludeTags.filter((x) => x !== v),
+              )
+            }
+          />
+          <TagRow
+            label="Include Tags"
+            values={options.includeTags}
+            onAdd={(v) => set("includeTags", [...options.includeTags, v])}
+            onRemove={(v) =>
+              set(
+                "includeTags",
+                options.includeTags.filter((x) => x !== v),
+              )
+            }
+          />
+          <NumberRow
+            label="Wait"
+            unit="ms"
+            placeholder="5 Seconds"
+            value={options.waitMs}
+            onChange={(v) => set("waitMs", v)}
+          />
+          <NumberRow
+            label="Timeout"
+            unit="ms"
+            placeholder="30 Seconds"
+            value={options.timeoutMs}
+            onChange={(v) => set("timeoutMs", v)}
+          />
+          <NumberRow
+            label="Max Age"
+            unit="ms"
+            placeholder="2 Days"
+            value={options.maxAgeMs}
+            onChange={(v) => set("maxAgeMs", v)}
+          />
+        </div>
+        <div className="border-border/60 flex justify-end border-t px-4 py-3">
+          <button
+            type="button"
+            onClick={() => onChange(DEFAULT_OPTIONS)}
+            className="bg-muted/60 hover:bg-muted inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+          >
+            Reset Settings
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ToggleRow({
+  icon: Icon,
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <Icon className="text-muted-foreground size-4 shrink-0" />
+      <span className="text-sm underline decoration-dotted decoration-muted-foreground/40 underline-offset-4">
+        {label}
+      </span>
+      <span className="ml-auto flex items-center gap-3">
+        {hint ? (
+          <span className="text-muted-foreground text-[11px]">{hint}</span>
+        ) : null}
+        <Switch
+          checked={checked}
+          onCheckedChange={(v: boolean) => onChange(v)}
+        />
+      </span>
+    </div>
+  );
+}
+
+function TagRow({
+  label,
+  values,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  values: string[];
+  onAdd: (v: string) => void;
+  onRemove: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-start gap-3">
+      <Rows3 className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+      <div className="flex-1">
+        <div className="flex items-center justify-between">
+          <span className="text-sm underline decoration-dotted decoration-muted-foreground/40 underline-offset-4">
+            {label}
+          </span>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+          >
+            + Add
+          </button>
+        </div>
+        {open ? (
+          <input
+            type="text"
+            value={draft}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && draft.trim()) {
+                onAdd(draft.trim());
+                setDraft("");
+              } else if (e.key === "Escape") {
+                setOpen(false);
+                setDraft("");
+              }
+            }}
+            placeholder="E.g. article, main, nav — Enter To Add"
+            className="border-border/60 bg-background/80 mt-2 w-full rounded-md border px-2 py-1 text-xs outline-none"
+          />
+        ) : null}
+        {values.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {values.map((v) => (
+              <span
+                key={v}
+                className="bg-muted/60 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px]"
+              >
+                {v}
+                <button
+                  type="button"
+                  onClick={() => onRemove(v)}
+                  aria-label={`Remove ${v}`}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NumberRow({
+  label,
+  unit,
+  placeholder,
+  value,
+  onChange,
+}: {
+  label: string;
+  unit: string;
+  placeholder: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <Rows3 className="text-muted-foreground size-4 shrink-0 opacity-0" />
+      <span className="text-sm underline decoration-dotted decoration-muted-foreground/40 underline-offset-4">
+        {label}
+      </span>
+      <div className="border-border/60 bg-background/60 ml-auto flex w-40 items-center rounded-md border">
+        <input
+          type="number"
+          value={value || ""}
+          onChange={(e) => onChange(Number(e.target.value) || 0)}
+          placeholder={placeholder}
+          className="placeholder:text-muted-foreground/50 flex-1 bg-transparent px-2 py-1 text-xs outline-none"
+        />
+        <span className="text-muted-foreground pr-2 font-mono text-[11px]">
+          {unit}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Enrich (stubbed) ───────────────────────────────────────────
+
+function EnrichButton() {
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        toast.info("Enrich Table Coming Soon — Batch Scrape Is On The Way.")
+      }
+      className="border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 inline-flex size-8 items-center justify-center rounded-md border transition-colors"
+      aria-label="Enrich from a table"
+    >
+      <TableIcon className="size-3.5" />
+    </button>
+  );
+}
+
+// ─── Format picker ──────────────────────────────────────────────
+
+type FormatSpec = {
+  id: FormatId;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  hint?: { left: string; right: string }; // Screenshot & HTML have dual mode
+};
+
+const FORMATS: FormatSpec[] = [
+  { id: "markdown", label: "Markdown", icon: FileText },
+  { id: "summary", label: "Summary", icon: Rows3 },
+  { id: "links", label: "Links", icon: Link2 },
+  {
+    id: "html",
+    label: "HTML",
+    icon: Code2,
+    hint: { left: "Cleaned", right: "Raw" },
+  },
+  {
+    id: "screenshot",
+    label: "Screenshot",
+    icon: Crop,
+    hint: { left: "Viewport", right: "Full Page" },
+  },
+  { id: "json", label: "JSON", icon: Globe },
+  { id: "branding", label: "Branding", icon: Palette },
+  { id: "images", label: "Images", icon: Images },
+];
+
+function FormatPopover({
+  formats,
+  onChange,
+}: {
+  formats: Set<FormatId>;
+  onChange: (next: Set<FormatId>) => void;
+}) {
+  const activeList = Array.from(formats);
+  const primary =
+    activeList[0] === "rawHtml" || activeList[0] === "screenshotFull"
+      ? activeList[0]
+      : activeList[0] ?? "markdown";
+  const primaryLabel =
+    FORMATS.find((f) => f.id === primary)?.label ??
+    (primary === "rawHtml"
+      ? "Raw HTML"
+      : primary === "screenshotFull"
+        ? "Screenshot"
+        : "Markdown");
+
+  return (
+    <Popover>
+      <PopoverTrigger className="border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors">
+        <FileText className="size-3.5" />
+        <span className="text-foreground">
+          Format: <span className="font-medium">{primaryLabel}</span>
+          {activeList.length > 1 ? (
+            <span className="text-muted-foreground ml-1">
+              +{activeList.length - 1}
+            </span>
+          ) : null}
+        </span>
+        <ArrowDown className="size-3" />
+      </PopoverTrigger>
+      <PopoverContent className="w-[320px]">
+        <div className="border-border/60 flex items-center justify-between border-b px-4 py-3">
+          <span className="text-sm font-medium">Format</span>
+        </div>
+        <div className="flex flex-col gap-1 p-2">
           {FORMATS.map((f) => {
-            const active = selected.has(f.id);
+            const active = formats.has(f.id);
             return (
               <button
                 key={f.id}
                 type="button"
-                onClick={() => toggleFormat(f.id)}
-                disabled={pending}
+                onClick={() => {
+                  const next = new Set(formats);
+                  if (active) next.delete(f.id);
+                  else next.add(f.id);
+                  if (next.size === 0) next.add("markdown");
+                  onChange(next);
+                }}
                 className={cn(
-                  "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                  active
-                    ? "border-orange-500/50 bg-orange-500/15 text-orange-200"
-                    : "border-border/60 bg-background text-muted-foreground hover:text-foreground",
+                  "hover:bg-muted/40 flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
                 )}
               >
-                {f.label}
+                <span
+                  className={cn(
+                    "border-border/60 flex size-4 shrink-0 items-center justify-center rounded border",
+                    active && "border-orange-500 bg-orange-500 text-white",
+                  )}
+                  aria-hidden
+                >
+                  {active ? <Check className="size-3" /> : null}
+                </span>
+                <f.icon className="text-muted-foreground size-4" />
+                <span className="flex-1 text-left underline decoration-dotted decoration-muted-foreground/40 underline-offset-4">
+                  {f.label}
+                </span>
+                {f.id === "json" ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toast.info("JSON Schema Editor Coming Soon.");
+                    }}
+                    className="bg-muted/60 hover:bg-muted inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors"
+                  >
+                    <Code2 className="size-3" />
+                    Edit Options
+                  </button>
+                ) : null}
+                {f.hint ? (
+                  <span className="flex items-center gap-2 text-[11px]">
+                    <span className="text-muted-foreground">
+                      {f.hint.left}
+                    </span>
+                    <span className="text-muted-foreground/60">
+                      {f.hint.right}
+                    </span>
+                  </span>
+                ) : null}
               </button>
             );
           })}
-          <label className="text-muted-foreground ml-auto inline-flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={onlyMainContent}
-              onChange={(e) => setOnlyMainContent(e.target.checked)}
-              disabled={pending}
-              className="accent-orange-500"
-            />
-            <span>Only Main Content</span>
-          </label>
         </div>
-      </form>
-
-      {error ? (
-        <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-5 py-3 text-sm">
-          {error}
-        </div>
-      ) : null}
-
-      {result ? <ResultPanel result={result} /> : <EmptyState />}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function EmptyState() {
+// ─── Get code popover ───────────────────────────────────────────
+
+function GetCodePopover({
+  url,
+  formats,
+  options,
+}: {
+  url: string;
+  formats: Set<FormatId>;
+  options: Options;
+}) {
+  const trimmed = url.trim() || "https://example.com";
+  const payload = buildApiPayload(trimmed, formats, options);
+  const body = JSON.stringify(payload, null, 2);
+  const curl = `curl -X POST https://api.peep.dev/v1/scrape \\
+  -H "Authorization: Bearer peep_live_..." \\
+  -H "Content-Type: application/json" \\
+  -d '${body}'`;
+
   return (
-    <div className="border-border/60 bg-card/20 text-muted-foreground rounded-lg border px-6 py-16 text-center text-sm">
-      Enter A URL Above And Hit Scrape. Each Call Uses 1 Credit.
-    </div>
+    <Popover>
+      <PopoverTrigger className="border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors">
+        <Code2 className="size-3.5" />
+        Get Code
+      </PopoverTrigger>
+      <PopoverContent className="w-[520px]">
+        <div className="border-border/60 flex items-center justify-between border-b px-4 py-3">
+          <span className="text-sm font-medium">cURL</span>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(curl);
+              toast.success("Copied");
+            }}
+            className="text-muted-foreground hover:text-foreground text-xs"
+          >
+            Copy
+          </button>
+        </div>
+        <pre className="bg-background/60 max-h-80 overflow-auto p-4 font-mono text-[11px] leading-relaxed">
+          {curl}
+        </pre>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function ResultPanel({ result }: { result: ScrapeResult }) {
-  const d = result.data;
-  const metadata = d.metadata as Record<string, unknown> | undefined;
-  const durationMs = typeof d.durationMs === "number" ? d.durationMs : null;
+// ─── Recent Runs ────────────────────────────────────────────────
 
-  return (
-    <div className="border-border/60 bg-card/30 overflow-hidden rounded-lg border">
-      <div className="border-border/60 flex flex-wrap items-center gap-4 border-b px-5 py-3 text-xs">
-        <span>
-          <span className="text-muted-foreground">Status: </span>
-          <span className="font-mono">
-            {(d.pageStatus as number | undefined) ?? "—"}
-          </span>
-        </span>
-        <span>
-          <span className="text-muted-foreground">Duration: </span>
-          <span className="font-mono">
-            {durationMs !== null ? `${durationMs}ms` : "—"}
-          </span>
-        </span>
-        <span>
-          <span className="text-muted-foreground">Credits: </span>
-          <span className="font-mono">{result.creditsUsed}</span>
-        </span>
-        {result.cached ? (
-          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider text-emerald-300">
-            Cached
-          </span>
-        ) : null}
-        <span className="text-muted-foreground ml-auto font-mono">
-          Job #{result.jobId.slice(0, 10)}
-        </span>
+function RecentRunsGrid({ runs }: { runs: RecentRun[] }) {
+  if (runs.length === 0) {
+    return (
+      <div className="border-border/60 bg-card/20 text-muted-foreground rounded-lg border px-6 py-10 text-center text-sm">
+        No Runs Yet. Scrape A URL Above — Your Recent Three Runs Will
+        Appear Here.
       </div>
-
-      <Tabs defaultValue="markdown" className="p-5">
-        <TabsList>
-          {d.markdown !== undefined ? (
-            <TabsTrigger value="markdown">Markdown</TabsTrigger>
-          ) : null}
-          {d.html !== undefined ? (
-            <TabsTrigger value="html">HTML</TabsTrigger>
-          ) : null}
-          {d.rawHtml !== undefined ? (
-            <TabsTrigger value="rawHtml">Raw HTML</TabsTrigger>
-          ) : null}
-          {Array.isArray(d.links) ? (
-            <TabsTrigger value="links">
-              Links ({(d.links as string[]).length})
-            </TabsTrigger>
-          ) : null}
-          {Array.isArray(d.images) ? (
-            <TabsTrigger value="images">
-              Images ({(d.images as string[]).length})
-            </TabsTrigger>
-          ) : null}
-          <TabsTrigger value="metadata">Metadata</TabsTrigger>
-          <TabsTrigger value="raw">Full JSON</TabsTrigger>
-        </TabsList>
-
-        {d.markdown !== undefined ? (
-          <TabsContent value="markdown">
-            <CodeBox content={String(d.markdown)} />
-          </TabsContent>
-        ) : null}
-        {d.html !== undefined ? (
-          <TabsContent value="html">
-            <CodeBox content={String(d.html)} />
-          </TabsContent>
-        ) : null}
-        {d.rawHtml !== undefined ? (
-          <TabsContent value="rawHtml">
-            <CodeBox content={String(d.rawHtml)} />
-          </TabsContent>
-        ) : null}
-        {Array.isArray(d.links) ? (
-          <TabsContent value="links">
-            <CodeBox content={(d.links as string[]).join("\n")} />
-          </TabsContent>
-        ) : null}
-        {Array.isArray(d.images) ? (
-          <TabsContent value="images">
-            <CodeBox content={(d.images as string[]).join("\n")} />
-          </TabsContent>
-        ) : null}
-        <TabsContent value="metadata">
-          <CodeBox content={JSON.stringify(metadata ?? {}, null, 2)} />
-        </TabsContent>
-        <TabsContent value="raw">
-          <CodeBox content={JSON.stringify(d, null, 2)} />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-function CodeBox({ content }: { content: string }) {
-  const [copied, setCopied] = useState(false);
-
-  function copy() {
-    void navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    );
   }
-
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={copy}
-        className="text-muted-foreground hover:text-foreground absolute right-2 top-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
-      >
-        {copied ? (
-          <>
-            <Check className="size-3" /> Copied
-          </>
-        ) : (
-          <>
-            <Copy className="size-3" /> Copy
-          </>
-        )}
-      </button>
-      <pre className="border-border/60 bg-background/60 max-h-[500px] overflow-auto rounded-md border p-4 font-mono text-[12px] leading-relaxed">
-        <code>{content || "(Empty)"}</code>
-      </pre>
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {runs.map((run) => (
+        <RecentRunCard key={run.id} run={run} />
+      ))}
     </div>
   );
 }
+
+function RecentRunCard({ run }: { run: RecentRun }) {
+  const host = safeHost(run.url);
+  const favicon = host
+    ? `https://www.google.com/s2/favicons?domain=${host}&sz=64`
+    : null;
+  const started = new Date(run.startedAt);
+  return (
+    <div className="border-border/60 bg-card/30 rounded-lg border">
+      <div className="border-border/60 flex items-center gap-3 border-b px-4 py-3">
+        <span className="bg-muted/60 flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+          {favicon ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={favicon} alt="" className="size-4" />
+          ) : (
+            <Globe className="text-muted-foreground size-3" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm">{host ?? run.url}</span>
+        <Link
+          href={`/dashboard/activity-logs`}
+          aria-label="Open run"
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <ArrowUpRight className="size-3.5" />
+        </Link>
+      </div>
+      <dl className="divide-border/40 divide-y text-xs">
+        <InfoRow label="Endpoint">
+          <EndpointBadge endpoint={run.endpoint} />
+        </InfoRow>
+        <InfoRow label="Status">
+          <StatusPill status={run.status} />
+        </InfoRow>
+        <InfoRow label="Started">
+          <span className="text-muted-foreground">
+            {started.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+            <br />
+            {started.toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </span>
+        </InfoRow>
+        <InfoRow label="Formats" align="start">
+          {run.formats.length === 0 ? (
+            <span className="text-muted-foreground">No Formats Selected</span>
+          ) : (
+            <span className="flex flex-wrap justify-end gap-1">
+              {run.formats.slice(0, 3).map((fid) => (
+                <FormatChip key={fid} id={fid} />
+              ))}
+              {run.formats.length > 3 ? (
+                <span className="text-muted-foreground px-1 text-[11px]">
+                  +{run.formats.length - 3}
+                </span>
+              ) : null}
+            </span>
+          )}
+        </InfoRow>
+      </dl>
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  children,
+  align = "end",
+}: {
+  label: string;
+  children: React.ReactNode;
+  align?: "start" | "end";
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 px-4 py-3">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd
+        className={cn(
+          "text-xs",
+          align === "end" ? "text-right" : "text-left",
+        )}
+      >
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+function EndpointBadge({ endpoint }: { endpoint: RecentRun["endpoint"] }) {
+  const Icon =
+    endpoint === "scrape"
+      ? Rows3
+      : endpoint === "map"
+        ? Link2
+        : endpoint === "crawl"
+          ? Globe
+          : FileText;
+  const label =
+    endpoint === "scrape"
+      ? "Scrape"
+      : endpoint === "map"
+        ? "Map"
+        : endpoint === "crawl"
+          ? "Crawl"
+          : "Search";
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Icon className="text-orange-400 size-3" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function StatusPill({ status }: { status: RecentRun["status"] }) {
+  const isDone = status === "DONE";
+  const isFailed = status === "FAILED";
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={cn(
+          "inline-flex size-3.5 items-center justify-center rounded-full",
+          isDone && "bg-orange-500/20 text-orange-400",
+          isFailed && "bg-destructive/20 text-destructive",
+          !isDone && !isFailed && "bg-muted text-muted-foreground",
+        )}
+        aria-hidden
+      >
+        {isDone ? (
+          <Check className="size-2.5" />
+        ) : isFailed ? (
+          <X className="size-2.5" />
+        ) : null}
+      </span>
+      <span>
+        {isDone
+          ? "Success"
+          : isFailed
+            ? "Failed"
+            : status.charAt(0) + status.slice(1).toLowerCase()}
+      </span>
+    </span>
+  );
+}
+
+function FormatChip({ id }: { id: FormatId }) {
+  const spec = FORMATS.find((f) => f.id === id);
+  const label = spec?.label ?? id;
+  const Icon = spec?.icon ?? FileText;
+  return (
+    <span className="bg-muted/60 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px]">
+      <Icon className="size-3" />
+      {label}
+    </span>
+  );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+function safeHost(raw: string): string | null {
+  try {
+    return new URL(raw).host;
+  } catch {
+    return null;
+  }
+}
+
+function buildApiPayload(
+  urlInput: string,
+  formats: Set<FormatId>,
+  options: Options,
+) {
+  const fixed = urlInput.startsWith("http")
+    ? urlInput
+    : `https://${urlInput}`;
+  const apiFormats: Array<Record<string, unknown>> = [];
+  for (const f of formats) {
+    if (f === "screenshot") apiFormats.push({ type: "screenshot", fullPage: false });
+    else if (f === "screenshotFull")
+      apiFormats.push({ type: "screenshot", fullPage: true });
+    else if (f === "rawHtml") apiFormats.push({ type: "rawHtml" });
+    else apiFormats.push({ type: f });
+  }
+  return {
+    url: fixed,
+    formats: apiFormats,
+    onlyMainContent: options.onlyMainContent,
+    waitFor: options.waitMs,
+    timeout: options.timeoutMs,
+    maxAge: options.maxAgeMs,
+    includeTags: options.includeTags.length ? options.includeTags : undefined,
+    excludeTags: options.excludeTags.length ? options.excludeTags : undefined,
+  };
+}
+
+// Smaller helpers that aren't in lucide's default set
+function ArrowDown({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+function Check({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+// Suppress unused warning — ImageIcon is reserved for a future image
+// preview tile.
+void ImageIcon;

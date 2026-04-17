@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Link2, Network, Search, Sparkles } from "lucide-react";
+import { Globe, MousePointer, Search, Telescope } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -22,13 +22,13 @@ const ENDPOINTS: Endpoint[] = [
     name: "Scrape",
     description:
       "Get LLM-Ready Data From Websites. Markdown, JSON, Screenshot, And More.",
-    icon: Link2,
+    icon: Telescope,
     href: "/dashboard/playground/scrape",
   },
   {
     name: "Interact",
     description: "Scrape A Page, Then Interact With It Using AI Prompts Or Code.",
-    icon: Sparkles,
+    icon: MousePointer,
     href: "/dashboard/playground/interact",
     badge: "NEW",
   },
@@ -36,7 +36,7 @@ const ENDPOINTS: Endpoint[] = [
     name: "Crawl",
     description:
       "Crawl All The Pages On A Website And Get Data For Each Page.",
-    icon: Network,
+    icon: Globe,
     href: "/dashboard/playground/crawl",
   },
 ];
