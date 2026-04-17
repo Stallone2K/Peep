@@ -161,6 +161,17 @@ export const scrapeRequestSchema = z.object({
   // Actions — Phase 4 only. Parsed for forward-compat.
   actions: z.array(actionObject).max(50).optional(),
 
+  // Top-level extract shorthand (Phase 5 forward-compat). Equivalent to
+  // formats:[{type:"json", schema, prompt}] but mirrors Firecrawl's v1
+  // shape for SDK callers that expect a top-level `extract` field.
+  extract: z
+    .object({
+      schema: z.any().optional(),
+      prompt: boundedString(1, 10_000).optional(),
+      systemPrompt: boundedString(1, 10_000).optional(),
+    })
+    .optional(),
+
   // Cache control (Phase 3 MVP)
   maxAge: z.number().int().nonnegative().optional(),
   minAge: z.number().int().nonnegative().optional(),
