@@ -5,7 +5,7 @@ import { debitCredits } from "@/lib/credits";
 import { getRedisConnection } from "@/lib/queue";
 import { ValidationError, InternalError } from "@/lib/errors";
 import { searchRequestSchema } from "@/lib/validators/search";
-import { BraveSearchProvider } from "@/server/search/brave";
+import { resolveSearchProvider } from "@/server/search";
 import { tbsToFreshness, type SearchResult } from "@/server/search/provider";
 import { performScrapeForUser } from "@/server/scrape-service";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
@@ -37,10 +37,10 @@ export async function POST(req: Request) {
     });
     const input = searchRequestSchema.parse(rawBody);
 
-    const provider = new BraveSearchProvider();
+    const provider = resolveSearchProvider();
     if (!provider.isConfigured()) {
       throw new InternalError(
-        "Search provider is not configured. Set BRAVE_SEARCH_API_KEY on the server.",
+        `Search provider ${provider.name} is not configured.`,
       );
     }
 
