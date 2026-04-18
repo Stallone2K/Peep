@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import { db } from "@/lib/db";
 import { requireApiKey } from "@/lib/api-auth";
 import { crawlQueue } from "@/lib/queue";
@@ -7,7 +5,8 @@ import { crawlRequestSchema } from "@/lib/validators/crawl";
 import { isAIConfigured } from "@/server/ai/client";
 import { promptToCrawlConfig } from "@/server/ai/crawl-prompt";
 import type { CrawlJobData } from "@/workers/crawl.worker";
-import { ValidationError, toJsonError } from "@/lib/errors";
+import { ValidationError } from "@/lib/errors";
+import { errorResponse, preflight } from "@/lib/route-helpers";
 
 // POST /api/v1/crawl
 // Creates a CrawlJob row, enqueues into the `crawl` queue, returns
@@ -16,7 +15,8 @@ import { ValidationError, toJsonError } from "@/lib/errors";
 // with Firecrawl, which lets callers plan before spending).
 export async function POST(req: Request) {
   try {
-    const { userId, apiKeyId } = await requireApiKey(req);
+    const { userId, apiKeyId, planTier } = await requireApiKey(req);
+    await preflight(userId, planTier);
 
     const rawBody = await req.json().catch(() => {
       throw new ValidationError({ reason: "Invalid JSON body" });
@@ -102,11 +102,6 @@ export async function POST(req: Request) {
       ...(aiSuggested ? { aiSuggested } : {}),
     });
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      const { body, status } = toJsonError(new ValidationError(err.issues));
-      return Response.json(body, { status });
-    }
-    const { body, status } = toJsonError(err);
-    return Response.json(body, { status });
+    return errorResponse(err);
   }
 }

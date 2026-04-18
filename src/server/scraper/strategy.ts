@@ -20,6 +20,8 @@ import { inferSchemaAndExtract } from "@/server/ai/infer-schema";
 import { generateSummary } from "@/server/ai/summary";
 import { extractBranding } from "@/server/ai/branding";
 import { isAIConfigured } from "@/server/ai/client";
+import { isAllowedByRobots } from "@/server/scraper/robots";
+import { ForbiddenError } from "@/lib/errors";
 
 export type EngineType = "http" | "playwright" | "proxy-playwright";
 
@@ -69,6 +71,19 @@ export async function runScrapeWithStrategy(
   input: ScrapeRequestInput,
 ): Promise<ScrapeResult> {
   const start = Date.now();
+
+  // Phase 7 — robots.txt pre-flight. Runs for every scrape regardless
+  // of path (inline /scrape, /crawl child, /batch child) so policy is
+  // enforced uniformly. Override is validated at the route boundary.
+  const robots = await isAllowedByRobots(input.url, {
+    bypass: input.respectRobotsTxt === false,
+  });
+  if (!robots.allowed) {
+    throw new ForbiddenError(
+      `Blocked by robots.txt for ${new URL(input.url).hostname}. Set respectRobotsTxt: false on a paid plan to bypass.`,
+    );
+  }
+
   let engine = pickEngine(input);
   const wantedTypes = new Set(input.formats.map((f) => f.type));
 

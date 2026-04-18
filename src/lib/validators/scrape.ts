@@ -182,6 +182,12 @@ export const scrapeRequestSchema = z.object({
 
   // Analytics tag (§11.18) — optional, e.g. "langchain" / "cli"
   integration: z.string().max(64).optional(),
+
+  // Phase 7 — skip robots.txt honoring. Default true (PeepBot honours
+  // robots.txt). Setting this to false is gated to paid plans at the
+  // route layer and logged in CreditLedger as `robots_override` so we
+  // have an audit trail for compliance.
+  respectRobotsTxt: z.boolean().default(true),
 });
 
 export type ScrapeRequestInput = z.infer<typeof scrapeRequestSchema>;

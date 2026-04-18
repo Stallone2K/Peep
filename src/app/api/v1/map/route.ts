@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import { requireApiKey } from "@/lib/api-auth";
 import { debitCredits } from "@/lib/credits";
 import { fetchPage } from "@/server/scraper/fetcher";
@@ -7,7 +5,8 @@ import { extractLinks } from "@/server/scraper/links";
 import { discoverSitemap } from "@/server/crawl/sitemap";
 import { normalizeUrl, hasBinaryExtension } from "@/server/crawl/filters";
 import { mapRequestSchema } from "@/lib/validators/map";
-import { ValidationError, toJsonError } from "@/lib/errors";
+import { ValidationError } from "@/lib/errors";
+import { errorResponse, preflight } from "@/lib/route-helpers";
 
 // POST /api/v1/map — synchronous URL discovery.
 // Combines sitemap (sitemap.xml + robots.txt Sitemap: entries) with a
@@ -16,7 +15,8 @@ import { ValidationError, toJsonError } from "@/lib/errors";
 // 1 credit per call regardless of how many URLs come back.
 export async function POST(req: Request) {
   try {
-    const { userId } = await requireApiKey(req);
+    const { userId, planTier } = await requireApiKey(req);
+    await preflight(userId, planTier);
 
     const rawBody = await req.json().catch(() => {
       throw new ValidationError({ reason: "Invalid JSON body" });
@@ -93,12 +93,7 @@ export async function POST(req: Request) {
       links: Array.from(collected),
     });
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      const { body, status } = toJsonError(new ValidationError(err.issues));
-      return Response.json(body, { status });
-    }
-    const { body, status } = toJsonError(err);
-    return Response.json(body, { status });
+    return errorResponse(err);
   }
 }
 

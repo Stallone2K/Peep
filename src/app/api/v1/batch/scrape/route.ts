@@ -1,13 +1,12 @@
-import { z } from "zod";
-
 import { db } from "@/lib/db";
 import { requireApiKey } from "@/lib/api-auth";
 import { scrapeQueue } from "@/lib/queue";
 import { batchScrapeRequestSchema } from "@/lib/validators/batch";
-import { ValidationError, toJsonError } from "@/lib/errors";
+import { ValidationError } from "@/lib/errors";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
+import { errorResponse, preflight } from "@/lib/route-helpers";
 
 // POST /api/v1/batch/scrape
 // Parallel scrape of N URLs. Creates a BatchJob + N ScrapeJob
@@ -16,7 +15,8 @@ import { scrapeRequestSchema } from "@/lib/validators/scrape";
 // per child — creating the batch is free (parity with /crawl).
 export async function POST(req: Request) {
   try {
-    const { userId, apiKeyId } = await requireApiKey(req);
+    const { userId, apiKeyId, planTier } = await requireApiKey(req);
+    await preflight(userId, planTier);
 
     const rawBody = await req.json().catch(() => {
       throw new ValidationError({ reason: "Invalid JSON body" });
@@ -85,11 +85,6 @@ export async function POST(req: Request) {
       total: input.urls.length,
     });
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      const { body, status } = toJsonError(new ValidationError(err.issues));
-      return Response.json(body, { status });
-    }
-    const { body, status } = toJsonError(err);
-    return Response.json(body, { status });
+    return errorResponse(err);
   }
 }

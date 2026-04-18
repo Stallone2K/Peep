@@ -83,9 +83,22 @@ export class InternalError extends ApiError {
   }
 }
 
-// Canonical JSON shape for error responses.
-export function toJsonError(err: unknown): { body: ErrorJson; status: number } {
+// Canonical JSON shape for error responses. Also returns any
+// response headers the caller should set (currently only Retry-After
+// for rate-limit errors).
+export function toJsonError(err: unknown): {
+  body: ErrorJson;
+  status: number;
+  headers?: Record<string, string>;
+} {
   if (err instanceof ApiError) {
+    const headers: Record<string, string> = {};
+    if (err instanceof RateLimitError) {
+      const details = err.details as { retryAfterSec?: number } | undefined;
+      if (details?.retryAfterSec) {
+        headers["Retry-After"] = String(details.retryAfterSec);
+      }
+    }
     return {
       status: err.status,
       body: {
@@ -96,6 +109,7 @@ export function toJsonError(err: unknown): { body: ErrorJson; status: number } {
           ...(err.details !== undefined ? { details: err.details } : {}),
         },
       },
+      ...(Object.keys(headers).length ? { headers } : {}),
     };
   }
 
