@@ -191,17 +191,30 @@ async function rollUpBatch(
   }
 
   const finished = updated.completed + updated.failed;
-  if (finished >= updated.total && updated.status !== "DONE") {
-    await db.batchJob.update({
-      where: { id: updated.id },
+  if (
+    finished >= updated.total &&
+    updated.status !== "DONE" &&
+    updated.status !== "CANCELLED"
+  ) {
+    // Guard the terminal transition with updateMany so we only fire
+    // the completion webhook from the winning worker (and gracefully
+    // no-op if the batch was cancelled in flight).
+    const { count } = await db.batchJob.updateMany({
+      where: {
+        id: updated.id,
+        status: { notIn: ["DONE", "CANCELLED"] },
+      },
       data: { status: "DONE", completedAt: new Date() },
     });
+    if (count === 0) return;
 
     if (updated.webhookUrl) {
+      const allFailed =
+        updated.failed === updated.total && updated.completed === 0;
       await emitWebhook({
         url: updated.webhookUrl,
         secret: updated.webhookSecret,
-        event: "batch.completed",
+        event: allFailed ? "batch.failed" : "batch.completed",
         userId: updated.userId,
         refType: "BatchJob",
         refId: updated.id,

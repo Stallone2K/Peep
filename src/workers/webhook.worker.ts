@@ -24,7 +24,17 @@ export function startWebhookWorker() {
       const body = JSON.stringify(delivery.payload);
       const timestamp = delivery.payload.createdAt;
       const secret = resolveSecret(delivery);
-      const signature = signWebhook(body, timestamp, secret);
+
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "user-agent": "Peep-Webhooks/1.0",
+        "peep-event": delivery.payload.event,
+        "peep-delivery-id": delivery.payload.deliveryId,
+        "peep-timestamp": timestamp,
+      };
+      if (secret) {
+        headers["peep-signature"] = signWebhook(body, timestamp, secret);
+      }
 
       const controller = new AbortController();
       const timer = setTimeout(
@@ -35,14 +45,7 @@ export function startWebhookWorker() {
         const res = await fetch(delivery.url, {
           method: "POST",
           signal: controller.signal,
-          headers: {
-            "content-type": "application/json",
-            "user-agent": "Peep-Webhooks/1.0",
-            "peep-event": delivery.payload.event,
-            "peep-delivery-id": delivery.payload.deliveryId,
-            "peep-timestamp": timestamp,
-            "peep-signature": signature,
-          },
+          headers,
           body,
         });
 

@@ -104,9 +104,12 @@ export function signWebhook(
 }
 
 // Resolve the signing secret for a delivery. Per-webhook secrets win
-// over the global WEBHOOK_SIGNING_SECRET fallback.
-export function resolveSecret(delivery: WebhookDelivery): string {
-  return (
-    delivery.secret ?? process.env.WEBHOOK_SIGNING_SECRET ?? "unsigned"
-  );
+// over the global WEBHOOK_SIGNING_SECRET fallback. Returns null when
+// neither is configured — callers must then omit the Peep-Signature
+// header entirely rather than signing with a placeholder (Stripe-
+// style: no secret → no signature, receiver either accepts unsigned
+// deliveries or rejects them, but never fails HMAC verification on a
+// dummy).
+export function resolveSecret(delivery: WebhookDelivery): string | null {
+  return delivery.secret ?? process.env.WEBHOOK_SIGNING_SECRET ?? null;
 }
