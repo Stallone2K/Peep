@@ -7,11 +7,13 @@ import {
   BadgeDollarSign,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   FileText,
   Globe,
   HardHat,
   KeyRound,
   LampDesk,
+  Map as MapIcon,
   MousePointer,
   Search,
   Settings,
@@ -29,6 +31,11 @@ type Item = {
   badge?: string;
   disabled?: boolean;
   expandable?: boolean;
+  children?: Array<{
+    label: string;
+    href: string;
+    icon: ComponentType<{ className?: string }>;
+  }>;
 };
 
 type Section = {
@@ -64,6 +71,18 @@ const SECTIONS: Section[] = [
         href: "/dashboard/playground/crawl",
         icon: Globe,
         expandable: true,
+        children: [
+          {
+            label: "Map All Website Links",
+            href: "/dashboard/playground/map",
+            icon: MapIcon,
+          },
+          {
+            label: "Crawl Entire Website",
+            href: "/dashboard/playground/crawl",
+            icon: Globe,
+          },
+        ],
       },
     ],
   },
@@ -107,6 +126,13 @@ export function SidebarNav({
       ? pathname === "/dashboard"
       : pathname === href || pathname.startsWith(href + "/");
 
+  // Expandable parents auto-open when a child matches the current
+  // route. Users can also toggle manually via the chevron.
+  const parentIsOpen = (item: Item): boolean => {
+    if (!item.children) return false;
+    return item.children.some((c) => isActive(c.href));
+  };
+
   return (
     <aside className="border-border/60 bg-background sticky top-0 flex h-screen w-60 shrink-0 flex-col self-start border-r">
       <div className="border-border/60 flex h-14 items-center border-b px-4">
@@ -127,6 +153,7 @@ export function SidebarNav({
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
+                const open = parentIsOpen(item);
                 return (
                   <li key={item.href}>
                     <Link
@@ -137,7 +164,7 @@ export function SidebarNav({
                       }
                       className={cn(
                         "group/item flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
-                        active
+                        active && !open
                           ? "bg-orange-500/10 text-orange-300"
                           : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
                         item.disabled && "cursor-not-allowed opacity-50",
@@ -151,12 +178,38 @@ export function SidebarNav({
                         </span>
                       ) : null}
                       {item.expandable ? (
-                        <ChevronDown
-                          aria-hidden
-                          className="size-3.5 opacity-50"
-                        />
+                        open ? (
+                          <ChevronDown aria-hidden className="size-3.5 opacity-50" />
+                        ) : (
+                          <ChevronRight aria-hidden className="size-3.5 opacity-50" />
+                        )
                       ) : null}
                     </Link>
+
+                    {item.children && open ? (
+                      <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-border/40 pl-2">
+                        {item.children.map((child) => {
+                          const ChildIcon = child.icon;
+                          const childActive = isActive(child.href);
+                          return (
+                            <li key={child.href}>
+                              <Link
+                                href={child.href}
+                                className={cn(
+                                  "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
+                                  childActive
+                                    ? "bg-orange-500/10 text-orange-300"
+                                    : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                                )}
+                              >
+                                <ChildIcon className="size-4 shrink-0" />
+                                <span className="flex-1">{child.label}</span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
                   </li>
                 );
               })}
