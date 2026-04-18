@@ -21,9 +21,24 @@ import { generateSummary } from "@/server/ai/summary";
 import { extractBranding } from "@/server/ai/branding";
 import { isAIConfigured } from "@/server/ai/client";
 import { isAllowedByRobots } from "@/server/scraper/robots";
-import { ForbiddenError } from "@/lib/errors";
+import { ApiError, ForbiddenError } from "@/lib/errors";
+import {
+  getStrategyHint,
+  recordStrategySuccess,
+} from "@/lib/strategy-cache";
 
 export type EngineType = "http" | "playwright" | "proxy-playwright";
+
+export class BlockedByBotProtectionError extends ApiError {
+  constructor(hostname: string, lastEngine: EngineType) {
+    super(
+      "BLOCKED_BY_BOT_PROTECTION",
+      `Scrape of ${hostname} was blocked by bot protection after escalating through ${lastEngine}. Retry with proxy:"stealth" on a paid plan, or use a different URL.`,
+      403,
+      { lastEngine },
+    );
+  }
+}
 
 export type ScrapeResult = {
   markdown?: string;
@@ -35,6 +50,7 @@ export type ScrapeResult = {
   json?: unknown;
   summary?: string;
   branding?: Record<string, unknown>;
+  changeTracking?: import("@/server/scraper/change-tracking").ChangeTrackingResult;
   metadata: Record<string, unknown>;
   extracted?: unknown;
   pageStatus: number;
@@ -84,8 +100,22 @@ export async function runScrapeWithStrategy(
     );
   }
 
+  const hostname = new URL(input.url).hostname;
   let engine = pickEngine(input);
   const wantedTypes = new Set(input.formats.map((f) => f.type));
+
+  // Phase 7C — last-known-good strategy for this host. If we
+  // previously had to escalate to stealth, skip the HTTP probe
+  // entirely and go straight to the tier that worked. Only honoured
+  // on `auto` proxy — explicit tiers stay respected.
+  if (input.proxy === "auto" && !input.actions?.length) {
+    const hint = await getStrategyHint(hostname);
+    if (hint === "proxy-playwright" && isStealthAvailable()) {
+      engine = "proxy-playwright";
+    } else if (hint === "playwright" && engine === "http") {
+      engine = "playwright";
+    }
+  }
 
   // ─── HTTP path ──────────────────────────────────────────────
   if (engine === "http") {
@@ -108,6 +138,7 @@ export async function runScrapeWithStrategy(
       // Escalate to Playwright
       engine = "playwright";
     } else {
+      await recordStrategySuccess(hostname, "http");
       const base = buildResultFromHtml({
         html: fetched.bodyText,
         statusCode: fetched.statusCode,
@@ -122,10 +153,49 @@ export async function runScrapeWithStrategy(
   }
 
   // ─── Playwright path (with optional proxy) ──────────────────
+  try {
+    return await runPlaywright({
+      input,
+      engine,
+      hostname,
+      wantedTypes,
+      start,
+    });
+  } catch (err) {
+    // Escalate once to the stealth tier if the block detector
+    // signalled a bot-protection page on a non-proxied run.
+    if (err instanceof NeedsStealthEscalation) {
+      return runPlaywright({
+        input,
+        engine: "proxy-playwright",
+        hostname,
+        wantedTypes,
+        start,
+      });
+    }
+    throw err;
+  }
+}
+
+// ─── Internal helper: single Playwright run at a given proxy tier ──
+// Pulled out of the orchestrator so the stealth-escalation path can
+// call it a second time with a different tier without duplicating
+// the navigate/screenshot/block-detect flow.
+async function runPlaywright({
+  input,
+  engine,
+  hostname,
+  wantedTypes,
+  start,
+}: {
+  input: ScrapeRequestInput;
+  engine: EngineType;
+  hostname: string;
+  wantedTypes: Set<string>;
+  start: number;
+}): Promise<ScrapeResult> {
   const proxyTier: ProxyTier =
-    engine === "proxy-playwright"
-      ? (input.proxy as ProxyTier)
-      : "basic";
+    engine === "proxy-playwright" ? "stealth" : "basic";
   const proxyConfig = getProxyConfig(proxyTier);
 
   const pool = BrowserPool.getInstance();
@@ -190,11 +260,7 @@ export async function runScrapeWithStrategy(
       }
 
       // Check for block on rendered page
-      const block = detectBlock(
-        renderedHtml,
-        statusCode,
-        {},
-      );
+      const block = detectBlock(renderedHtml, statusCode, {});
 
       if (
         block.blocked &&
@@ -202,9 +268,17 @@ export async function runScrapeWithStrategy(
         isStealthAvailable() &&
         engine !== "proxy-playwright"
       ) {
-        // Could escalate to proxy-playwright here for a retry.
-        // For Phase 4 MVP: just return what we got with a blocked hint.
+        // Throw the sentinel — the BrowserPool finalizer releases the
+        // page before runScrapeWithStrategy re-enters runPlaywright at
+        // the stealth tier.
+        throw new NeedsStealthEscalation();
       }
+
+      if (block.blocked && engine === "proxy-playwright") {
+        throw new BlockedByBotProtectionError(hostname, engine);
+      }
+
+      await recordStrategySuccess(hostname, engine);
 
       const base = buildResultFromHtml({
         html: renderedHtml,
@@ -213,7 +287,7 @@ export async function runScrapeWithStrategy(
         input,
         wantedTypes,
         start,
-        engine: engine as EngineType,
+        engine,
       });
       const withAI = await applyAIFormats(
         base,
@@ -236,6 +310,17 @@ export async function runScrapeWithStrategy(
       languages: input.languages,
     },
   );
+}
+
+// Internal sentinel — used to unwind the BrowserPool before
+// re-entering runPlaywright at a higher proxy tier. Not exported;
+// callers outside this file should only ever see
+// BlockedByBotProtectionError when the ladder is exhausted.
+class NeedsStealthEscalation extends Error {
+  constructor() {
+    super("stealth_escalation_requested");
+    this.name = "NeedsStealthEscalation";
+  }
 }
 
 // Shared HTML → structured-output pipeline used by both HTTP and PW paths.

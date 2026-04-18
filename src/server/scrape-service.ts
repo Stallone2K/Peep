@@ -6,6 +6,8 @@ import { getRedisConnection } from "@/lib/queue";
 import { ApiError, InternalError } from "@/lib/errors";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { runScrapeWithStrategy, type ScrapeResult } from "@/server/scraper/strategy";
+import { applyChangeTracking } from "@/server/scraper/change-tracking";
+import { STEALTH_CREDIT_BONUS } from "@/server/proxy/providers";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
 
 const BASE_CREDITS = 1;
@@ -305,6 +307,36 @@ async function runInline({
 
   try {
     const out = await runScrapeWithStrategy(input);
+
+    // Phase 7C — changeTracking snapshots are user-scoped so the
+    // strategy layer can't know about them. Apply after the scrape
+    // returns but before we persist the ScrapeResult.
+    const changeTracking = await applyChangeTracking({
+      userId,
+      input,
+      currentMarkdown: out.markdown ?? null,
+    });
+    if (changeTracking) out.changeTracking = changeTracking;
+
+    // Phase 7C — stealth-used surcharge (+4 credits per §11.12).
+    // Only billed when the strategy actually escalated to the
+    // stealth tier; basic Playwright runs don't trigger it.
+    let stealthSurcharge = 0;
+    if (out.proxyUsed === "stealth") {
+      stealthSurcharge = STEALTH_CREDIT_BONUS;
+      await debitCredits(userId, stealthSurcharge, {
+        reason: "stealth_proxy_used",
+        refType: "ScrapeJob",
+        refId: jobId,
+      }).catch(() => {});
+      await db.scrapeJob
+        .update({
+          where: { id: jobId },
+          data: { creditsUsed: creditsCharged + stealthSurcharge },
+        })
+        .catch(() => {});
+    }
+
     const shouldStore = input.storeInCache !== false;
 
     await db.$transaction([
@@ -324,6 +356,7 @@ async function runInline({
             json: out.json,
             summary: out.summary,
             branding: out.branding,
+            changeTracking: out.changeTracking,
           } as never,
           pageStatus: out.pageStatus,
           durationMs: out.durationMs,
@@ -339,7 +372,7 @@ async function runInline({
     return {
       success: true,
       jobId,
-      creditsUsed: creditsCharged,
+      creditsUsed: creditsCharged + stealthSurcharge,
       cached: false,
       data: {
         ...out,

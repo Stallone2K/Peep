@@ -29,6 +29,7 @@ model User {
   scrapeJobs ScrapeJob[]
   crawlJobs  CrawlJob[]
   batchJobs  BatchJob[]
+  snapshots  ChangeSnapshot[]
   ledger     CreditLedger[]
 }
 
@@ -224,6 +225,26 @@ model BatchJob {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
+}
+
+// Phase 7 — per-URL content snapshots for `changeTracking` format.
+// Each scrape with the format produces a row; the next scrape reads
+// the latest row for (userId, url, tag) and compares content hashes
+// to derive new / same / changed / removed status. `tag` isolates
+// independent tracking histories on the same URL (e.g. "prod" vs
+// "staging", or "pre-launch" vs "post-launch").
+model ChangeSnapshot {
+  id          String   @id @default(cuid())
+  userId      String
+  url         String
+  tag         String?
+  markdown    String?  @db.Text
+  contentHash String
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, url, tag, createdAt(sort: Desc)])
 }
 
 model ExtractJob {

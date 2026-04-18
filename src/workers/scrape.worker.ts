@@ -3,6 +3,9 @@ import { Worker, Job } from "bullmq";
 import { db } from "@/lib/db";
 import { getRedisConnection } from "@/lib/queue";
 import { runScrapeWithStrategy } from "@/server/scraper/strategy";
+import { applyChangeTracking } from "@/server/scraper/change-tracking";
+import { debitCredits } from "@/lib/credits";
+import { STEALTH_CREDIT_BONUS } from "@/server/proxy/providers";
 import { uploadScreenshot, isR2Configured, getR2SignedUrl } from "@/lib/r2";
 import { emitWebhook } from "@/lib/webhooks";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
@@ -20,14 +23,42 @@ export function startScrapeWorker() {
     async (job: Job<ScrapeJobData>) => {
       const { scrapeJobId, input } = job.data;
 
-      // Mark RUNNING
-      await db.scrapeJob.update({
+      // Mark RUNNING — also grab userId for the changeTracking scope.
+      const jobRow = await db.scrapeJob.update({
         where: { id: scrapeJobId },
         data: { status: "RUNNING", startedAt: new Date() },
+        select: { userId: true },
       });
 
       try {
         const result = await runScrapeWithStrategy(input);
+
+        // Phase 7C — user-scoped changeTracking snapshots, applied
+        // after strategy returns but before persisting ScrapeResult.
+        const changeTracking = await applyChangeTracking({
+          userId: jobRow.userId,
+          input,
+          currentMarkdown: result.markdown ?? null,
+        });
+        if (changeTracking) result.changeTracking = changeTracking;
+
+        // Phase 7C — stealth-proxy surcharge. Billed only when the
+        // strategy actually escalated to the stealth tier (§11.12).
+        if (result.proxyUsed === "stealth") {
+          await debitCredits(jobRow.userId, STEALTH_CREDIT_BONUS, {
+            reason: "stealth_proxy_used",
+            refType: "ScrapeJob",
+            refId: scrapeJobId,
+          }).catch((err) => {
+            console.error("[scrape-worker] stealth surcharge debit failed", err);
+          });
+          await db.scrapeJob
+            .update({
+              where: { id: scrapeJobId },
+              data: { creditsUsed: { increment: STEALTH_CREDIT_BONUS } },
+            })
+            .catch(() => {});
+        }
 
         // Upload screenshot to R2 if we got one from Playwright AND
         // it's not already a signed URL (strategy.ts may have uploaded it)
@@ -60,6 +91,7 @@ export function startScrapeWorker() {
                 engineUsed: result.engineUsed,
                 proxyUsed: result.proxyUsed,
                 actionResults: result.actionResults,
+                changeTracking: result.changeTracking,
               } as never,
               pageStatus: result.pageStatus,
               durationMs: result.durationMs,
