@@ -4,9 +4,18 @@ import { crawlQueue } from "@/lib/queue";
 import { crawlRequestSchema } from "@/lib/validators/crawl";
 import { isAIConfigured } from "@/server/ai/client";
 import { promptToCrawlConfig } from "@/server/ai/crawl-prompt";
+import {
+  bodyHash,
+  lookupIdempotent,
+  storeIdempotent,
+} from "@/lib/idempotency";
 import type { CrawlJobData } from "@/workers/crawl.worker";
 import { ValidationError } from "@/lib/errors";
-import { errorResponse, preflight } from "@/lib/route-helpers";
+import {
+  canOverrideRobots,
+  errorResponse,
+  preflight,
+} from "@/lib/route-helpers";
 
 // POST /api/v1/crawl
 // Creates a CrawlJob row, enqueues into the `crawl` queue, returns
@@ -21,7 +30,32 @@ export async function POST(req: Request) {
     const rawBody = await req.json().catch(() => {
       throw new ValidationError({ reason: "Invalid JSON body" });
     });
+
+    // Idempotency-Key (optional) — 24h Postgres-backed dedup. Shields
+    // the caller from accidental double-submit of an expensive crawl.
+    const idempotencyKey = req.headers.get("idempotency-key");
+    if (idempotencyKey) {
+      const hit = await lookupIdempotent({
+        userId,
+        key: idempotencyKey,
+        hash: bodyHash(rawBody),
+      });
+      if (hit && "conflict" in hit) {
+        throw new ValidationError({
+          reason: "Idempotency key reused with a different body",
+        });
+      }
+      if (hit) return Response.json(hit.body, { status: hit.status });
+    }
+
     let input = crawlRequestSchema.parse(rawBody);
+
+    // Paid-tier gate for ignoreRobotsTxt — same rule as scrape's
+    // respectRobotsTxt override. Lower tiers silently coerce back
+    // rather than 403-ing on a misconfigured SDK call.
+    if (input.ignoreRobotsTxt && !canOverrideRobots(planTier)) {
+      input.ignoreRobotsTxt = false;
+    }
 
     // NL-prompted crawl: translate the prompt into config fields via
     // Gemini, then merge UNDER the explicit fields so caller-supplied
@@ -94,13 +128,25 @@ export async function POST(req: Request) {
     });
 
     const origin = new URL(req.url).origin;
-    return Response.json({
-      success: true,
+    const responseBody = {
+      success: true as const,
       jobId: crawlJob.id,
       url: `${origin}/api/v1/crawl/${crawlJob.id}`,
       streamUrl: `${origin}/api/v1/crawl/${crawlJob.id}/stream`,
       ...(aiSuggested ? { aiSuggested } : {}),
-    });
+    };
+
+    if (idempotencyKey) {
+      await storeIdempotent({
+        userId,
+        key: idempotencyKey,
+        hash: bodyHash(rawBody),
+        statusCode: 200,
+        responseBody,
+      });
+    }
+
+    return Response.json(responseBody);
   } catch (err) {
     return errorResponse(err);
   }

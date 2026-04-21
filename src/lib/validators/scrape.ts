@@ -154,9 +154,17 @@ export const scrapeRequestSchema = z.object({
   // proxy choices are honoured as "pass through" — no stealth yet.
   proxy: z.enum(["basic", "stealth", "enhanced", "auto"]).default("auto"),
 
-  // Location
+  // Location — Firecrawl v2 accepts a nested object; we keep the flat
+  // `country`/`languages` for backward compat with early SDK callers
+  // and flatten the nested shape into them at the route boundary.
   country: z.string().optional(),
   languages: z.array(z.string()).optional(),
+  location: z
+    .object({
+      country: z.string().optional(),
+      languages: z.array(z.string()).optional(),
+    })
+    .optional(),
 
   // Actions — Phase 4 only. Parsed for forward-compat.
   actions: z.array(actionObject).max(50).optional(),

@@ -2,7 +2,12 @@ import { db } from "@/lib/db";
 import { requireApiKey } from "@/lib/api-auth";
 import { scrapeQueue } from "@/lib/queue";
 import { batchScrapeRequestSchema } from "@/lib/validators/batch";
-import { ValidationError } from "@/lib/errors";
+import {
+  bodyHash,
+  lookupIdempotent,
+  storeIdempotent,
+} from "@/lib/idempotency";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
@@ -21,36 +26,86 @@ export async function POST(req: Request) {
     const rawBody = await req.json().catch(() => {
       throw new ValidationError({ reason: "Invalid JSON body" });
     });
+
+    // Idempotency-Key (optional) — same 24h shield as the scrape
+    // route. Matters more here because a double-submitted batch
+    // against a large URL list is expensive.
+    const idempotencyKey = req.headers.get("idempotency-key");
+    if (idempotencyKey) {
+      const hit = await lookupIdempotent({
+        userId,
+        key: idempotencyKey,
+        hash: bodyHash(rawBody),
+      });
+      if (hit && "conflict" in hit) {
+        throw new ValidationError({
+          reason: "Idempotency key reused with a different body",
+        });
+      }
+      if (hit) return Response.json(hit.body, { status: hit.status });
+    }
+
     const input = batchScrapeRequestSchema.parse(rawBody);
 
-    // Normalize child scrape options — we need a full ScrapeRequestInput
-    // per child. Merge per-batch scrapeOptions over the scrape defaults,
-    // then fill in the URL.
-    const batchJob = await db.batchJob.create({
-      data: {
-        userId,
-        apiKeyId,
-        total: input.urls.length,
-        options: input as never,
-        status: "QUEUED",
-        webhookUrl: input.webhook?.url ?? null,
-        webhookSecret: input.webhook?.secret ?? null,
-        integration: input.integration,
-      },
-    });
+    // Partition URLs into valid / invalid. `ignoreInvalidURLs` (default
+    // true, Firecrawl parity) drops malformed entries rather than
+    // 422-ing the whole call; `false` surfaces them as a hard error.
+    const partitioned = partitionUrls(input.urls);
+    if (!input.ignoreInvalidURLs && partitioned.invalid.length > 0) {
+      throw new ValidationError({
+        reason: "One or more URLs are invalid",
+        invalid: partitioned.invalid,
+      });
+    }
+    if (partitioned.valid.length === 0) {
+      throw new ValidationError({
+        reason: "No valid URLs supplied",
+        invalid: partitioned.invalid,
+      });
+    }
 
-    // Create children + enqueue. We do the DB inserts first (single
-    // createMany) so a Redis hiccup halfway through doesn't leave us
-    // with orphan DB rows.
+    // Either append to an existing batch or spin up a new one.
+    let batchJob = input.appendToId
+      ? await db.batchJob.findFirst({
+          where: { id: input.appendToId, userId },
+        })
+      : null;
+    if (input.appendToId && !batchJob) {
+      throw new NotFoundError("Batch job");
+    }
+    if (!batchJob) {
+      batchJob = await db.batchJob.create({
+        data: {
+          userId,
+          apiKeyId,
+          total: partitioned.valid.length,
+          options: input as never,
+          status: "QUEUED",
+          webhookUrl: input.webhook?.url ?? null,
+          webhookSecret: input.webhook?.secret ?? null,
+          integration: input.integration,
+        },
+      });
+    } else {
+      // Appending — bump the total count atomically so the scrape
+      // worker's rollUpBatch still fires batch.completed correctly
+      // once every child (old + new) finishes.
+      batchJob = await db.batchJob.update({
+        where: { id: batchJob.id },
+        data: { total: { increment: partitioned.valid.length } },
+      });
+    }
+
+    // Build child defaults once from the scrape options on this batch.
     const childOptionsDefaults = scrapeRequestSchema.parse({
-      url: input.urls[0],
+      url: partitioned.valid[0],
       ...(input.scrapeOptions ?? {}),
     });
 
-    const childrenData = input.urls.map((url) => ({
+    const childrenData = partitioned.valid.map((url) => ({
       userId,
       apiKeyId,
-      batchJobId: batchJob.id,
+      batchJobId: batchJob!.id,
       url,
       options: { ...childOptionsDefaults, url } as never,
       status: "QUEUED" as const,
@@ -60,13 +115,17 @@ export async function POST(req: Request) {
 
     await db.scrapeJob.createMany({ data: childrenData });
 
+    // Only enqueue the children we just inserted — filter by URL list
+    // so a large existing batch doesn't re-enqueue its old children.
     const created = await db.scrapeJob.findMany({
-      where: { batchJobId: batchJob.id },
+      where: {
+        batchJobId: batchJob.id,
+        url: { in: partitioned.valid },
+        status: "QUEUED",
+      },
       select: { id: true, url: true },
     });
 
-    // Enqueue each child on the scrape queue. The scrape worker's
-    // post-completion hook rolls up into BatchJob.completed/failed.
     for (const child of created) {
       const jobData: ScrapeJobData = {
         scrapeJobId: child.id,
@@ -78,13 +137,59 @@ export async function POST(req: Request) {
     }
 
     const origin = new URL(req.url).origin;
-    return Response.json({
-      success: true,
+    const responseBody = {
+      success: true as const,
       jobId: batchJob.id,
       url: `${origin}/api/v1/batch/scrape/${batchJob.id}`,
-      total: input.urls.length,
-    });
+      total: batchJob.total,
+      added: partitioned.valid.length,
+      invalidURLs:
+        partitioned.invalid.length > 0 ? partitioned.invalid : undefined,
+    };
+
+    if (idempotencyKey) {
+      await storeIdempotent({
+        userId,
+        key: idempotencyKey,
+        hash: bodyHash(rawBody),
+        statusCode: 200,
+        responseBody,
+      });
+    }
+
+    return Response.json(responseBody);
   } catch (err) {
     return errorResponse(err);
   }
+}
+
+function partitionUrls(urls: string[]): {
+  valid: string[];
+  invalid: string[];
+} {
+  const valid: string[] = [];
+  const invalid: string[] = [];
+  for (const raw of urls) {
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== "http:" && u.protocol !== "https:") {
+        invalid.push(raw);
+        continue;
+      }
+      const host = u.hostname.toLowerCase();
+      if (
+        host === "localhost" ||
+        host === "0.0.0.0" ||
+        host === "::1" ||
+        host.endsWith(".localhost")
+      ) {
+        invalid.push(raw);
+        continue;
+      }
+      valid.push(raw);
+    } catch {
+      invalid.push(raw);
+    }
+  }
+  return { valid, invalid };
 }

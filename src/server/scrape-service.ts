@@ -60,6 +60,17 @@ export async function performScrapeForUser({
   input: ScrapeRequestInput;
   async?: boolean;
 }): Promise<ScrapeServiceResult> {
+  // Normalize nested `location: {country, languages}` into the flat
+  // fields the rest of the pipeline reads. Caller-supplied flat
+  // fields win on conflict.
+  if (input.location) {
+    input = {
+      ...input,
+      country: input.country ?? input.location.country,
+      languages: input.languages ?? input.location.languages,
+    };
+  }
+
   const key = cacheKey(input);
   const cached = await readCache({
     key,

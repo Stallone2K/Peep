@@ -129,8 +129,12 @@ async function runCrawlJob(
     ignoreQueryParameters: input.ignoreQueryParameters,
   });
 
+  // deduplicateSimilarURLs (default true) escalates the frontier to
+  // collapse query-param variants on the dedup side. Explicit
+  // ignoreQueryParameters still wins when set.
   const frontier = new CrawlFrontier(crawlJobId, {
-    ignoreQueryParameters: input.ignoreQueryParameters,
+    ignoreQueryParameters:
+      input.ignoreQueryParameters || input.deduplicateSimilarURLs,
   });
 
   // ─── Seed ────────────────────────────────────────────────────
@@ -297,6 +301,10 @@ async function runCrawlJob(
             ...(defaultScrapeOptions() as ScrapeRequestInput),
             ...(input.scrapeOptions ?? {}),
             url,
+            // Crawl-level robots toggle cascades to every child. The
+            // route boundary has already gated ignoreRobotsTxt to
+            // paid tiers, so by the time we get here it's authorized.
+            respectRobotsTxt: !input.ignoreRobotsTxt,
           };
 
           const child = await db.scrapeJob.create({

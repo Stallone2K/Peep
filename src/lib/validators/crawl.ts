@@ -35,6 +35,17 @@ export const crawlRequestSchema = z.object({
 
   // Normalization
   ignoreQueryParameters: z.boolean().default(false),
+  // Firecrawl-parity: collapse query-param variants / trailing-slash
+  // duplicates on the dedup side even if we keep them in the fetched
+  // URL. Default true, matching upstream.
+  deduplicateSimilarURLs: z.boolean().default(true),
+
+  // Robots.txt behaviour — mirrors Firecrawl's crawl-level toggles.
+  // `ignoreRobotsTxt` translates into `respectRobotsTxt: false` on
+  // every child scrape; the route boundary still gates this to paid
+  // tiers. `robotsUserAgent` overrides the default PeepBot UA.
+  ignoreRobotsTxt: z.boolean().default(false),
+  robotsUserAgent: z.string().max(200).optional(),
 
   // Pacing
   delay: z.number().nonnegative().max(60).default(0),
