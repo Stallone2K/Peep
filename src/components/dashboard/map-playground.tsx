@@ -10,6 +10,7 @@ import {
   Code2,
   Copy,
   Download,
+  SquareChevronRight,
   Gauge,
   Globe,
   Link2,
@@ -355,7 +356,7 @@ function GetCodePopover({ url, options }: { url: string; options: Options }) {
   return (
     <Popover>
       <PopoverTrigger className="border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors">
-        <Code2 className="size-3.5" />
+        <SquareChevronRight className="size-3.5" />
         Get Code
       </PopoverTrigger>
       <PopoverContent className="w-[520px]">
