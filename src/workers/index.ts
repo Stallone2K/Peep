@@ -7,6 +7,7 @@ import { startScrapeWorker } from "./scrape.worker";
 import { startExtractWorker } from "./extract.worker";
 import { startCrawlWorker } from "./crawl.worker";
 import { startWebhookWorker } from "./webhook.worker";
+import { startAgentWorker } from "./agent.worker";
 import { BrowserPool } from "../server/scraper/browser";
 
 // Worker entry point — runs as a separate Node process via
@@ -19,6 +20,7 @@ const scrapeWorker = startScrapeWorker();
 const extractWorker = startExtractWorker();
 const crawlWorker = startCrawlWorker();
 const webhookWorker = startWebhookWorker();
+const agentWorker = startAgentWorker();
 
 // Graceful shutdown on SIGTERM / SIGINT (Fly.io sends SIGTERM on
 // deploy, Ctrl+C sends SIGINT locally). Drain in-flight jobs within
@@ -37,6 +39,7 @@ async function shutdown(signal: string) {
       extractWorker.close(),
       crawlWorker.close(),
       webhookWorker.close(),
+      agentWorker.close(),
     ]);
     await BrowserPool.getInstance().shutdown();
     clearTimeout(timer);

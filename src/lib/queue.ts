@@ -25,6 +25,7 @@ let _crawlQueue: Queue | null = null;
 let _extractQueue: Queue | null = null;
 let _batchQueue: Queue | null = null;
 let _webhookQueue: Queue | null = null;
+let _agentQueue: Queue | null = null;
 
 const DEFAULT_JOB_OPTS = {
   attempts: 3,
@@ -51,6 +52,17 @@ export function crawlQueue(): Queue {
     });
   }
   return _crawlQueue;
+}
+
+// Agent (lead/data harvester) jobs — long-running fan-out, concurrency 1.
+export function agentQueue(): Queue {
+  if (!_agentQueue) {
+    _agentQueue = new Queue("agent", {
+      connection: getRedisConnection(),
+      defaultJobOptions: DEFAULT_JOB_OPTS,
+    });
+  }
+  return _agentQueue;
 }
 
 export function extractQueue(): Queue {

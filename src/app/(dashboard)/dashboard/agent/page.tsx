@@ -1,16 +1,17 @@
-import { Bot } from "lucide-react";
+import { redirect } from "next/navigation";
 
-import { ComingSoon } from "@/components/dashboard/coming-soon";
+import { auth } from "@/lib/auth";
+import { AgentPlayground } from "@/components/dashboard/agent-playground";
 
-export const metadata = { title: "Agent" };
+export const metadata = { title: "Agent — Research Preview" };
 
-export default function AgentPage() {
+export default async function AgentPage() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/sign-in");
+
   return (
-    <ComingSoon
-      title="Agent"
-      description="Autonomous Multi-Page Extraction — Give A Goal, Peep Navigates And Collects."
-      phase="Later Phase (Research Preview)"
-      icon={Bot}
-    />
+    <div className="mx-auto w-full max-w-5xl px-6 pb-10">
+      <AgentPlayground />
+    </div>
   );
 }
