@@ -944,6 +944,13 @@ const FORMATS: FormatSpec[] = [
   { id: "images", label: "Images", icon: Images },
 ];
 
+// Formats with a dual mode → [defaultVariantId, alternateVariantId]. The hint
+// labels become clickable pills that switch between the two underlying ids.
+const VARIANTS: Partial<Record<FormatId, [FormatId, FormatId]>> = {
+  screenshot: ["screenshot", "screenshotFull"], // Viewport · Full Page
+  html: ["html", "rawHtml"], // Cleaned · Raw
+};
+
 function FormatPopover({
   formats,
   onChange,
@@ -984,12 +991,27 @@ function FormatPopover({
         </div>
         <div className="flex flex-col gap-1 p-2">
           {FORMATS.map((f) => {
-            const active = formats.has(f.id);
+            const variant = VARIANTS[f.id];
+            const leftId = variant ? variant[0] : f.id;
+            const rightId = variant ? variant[1] : f.id;
+            const active = variant
+              ? formats.has(leftId) || formats.has(rightId)
+              : formats.has(f.id);
             const toggle = () => {
               const next = new Set(formats);
-              if (active) next.delete(f.id);
-              else next.add(f.id);
+              if (active) {
+                next.delete(leftId);
+                next.delete(rightId);
+              } else {
+                next.add(leftId);
+              }
               if (next.size === 0) next.add("markdown");
+              onChange(next);
+            };
+            const pickVariant = (addId: FormatId, removeId: FormatId) => {
+              const next = new Set(formats);
+              next.delete(removeId);
+              next.add(addId);
               onChange(next);
             };
             return (
@@ -1034,14 +1056,24 @@ function FormatPopover({
                     Edit Options
                   </button>
                 ) : null}
-                {f.hint ? (
-                  <span className="flex items-center gap-2 text-[11px]">
-                    <span className="text-muted-foreground">
-                      {f.hint.left}
-                    </span>
-                    <span className="text-muted-foreground/60">
-                      {f.hint.right}
-                    </span>
+                {f.hint && variant ? (
+                  <span className="flex items-center gap-1 text-[11px]">
+                    <VariantPill
+                      label={f.hint.left}
+                      active={formats.has(leftId)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pickVariant(leftId, rightId);
+                      }}
+                    />
+                    <VariantPill
+                      label={f.hint.right}
+                      active={formats.has(rightId)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pickVariant(rightId, leftId);
+                      }}
+                    />
                   </span>
                 ) : null}
               </div>
@@ -1050,6 +1082,31 @@ function FormatPopover({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function VariantPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded px-1.5 py-0.5 transition-colors",
+        active
+          ? "bg-orange-500/15 text-orange-300"
+          : "text-muted-foreground/60 hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
