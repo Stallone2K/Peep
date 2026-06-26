@@ -6,7 +6,6 @@ import { runScrapeWithStrategy } from "@/server/scraper/strategy";
 import { applyChangeTracking } from "@/server/scraper/change-tracking";
 import { debitCredits } from "@/lib/credits";
 import { STEALTH_CREDIT_BONUS } from "@/server/proxy/providers";
-import { uploadScreenshot, isR2Configured, getR2SignedUrl } from "@/lib/r2";
 import { emitWebhook } from "@/lib/webhooks";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 
@@ -60,20 +59,10 @@ export function startScrapeWorker() {
             .catch(() => {});
         }
 
-        // Upload screenshot to R2 if we got one from Playwright AND
-        // it's not already a signed URL (strategy.ts may have uploaded it)
-        let screenshotR2Key: string | undefined;
-        if (
-          result.screenshot &&
-          !result.screenshot.startsWith("http") &&
-          !result.screenshot.startsWith("data:") &&
-          isR2Configured()
-        ) {
-          screenshotR2Key = await uploadScreenshot(
-            scrapeJobId,
-            Buffer.from(result.screenshot, "base64"),
-          );
-        }
+        // strategy.ts already saved the screenshot to local-disk storage and
+        // returned its key (or an inline data: URL fallback); persist as-is.
+        // The response layer (formatDbResult) signs the key into a URL.
+        const screenshotR2Key = result.screenshot ?? undefined;
 
         // Write result + mark DONE
         await db.$transaction([

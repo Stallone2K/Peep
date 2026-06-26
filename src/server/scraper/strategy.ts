@@ -19,7 +19,7 @@ import { captureScreenshot } from "@/server/scraper/screenshot";
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
-import { uploadScreenshot, isR2Configured, getR2SignedUrl } from "@/lib/r2";
+import { uploadScreenshot, isR2Configured } from "@/lib/storage";
 import { extractStructured } from "@/server/ai/extract";
 import { inferSchemaAndExtract } from "@/server/ai/infer-schema";
 import { generateSummary } from "@/server/ai/summary";
@@ -255,11 +255,12 @@ async function runPlaywright({
 
         const buf = await captureScreenshot(page, screenshotOpts);
 
-        // Upload to R2 if configured, otherwise encode as data URL
+        // Save to local-disk storage and keep the key; the response layer
+        // signs it into a /api/files URL. Fall back to an inline data URL
+        // only if storage is somehow unavailable.
         if (isR2Configured()) {
           const jobId = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          const r2Key = await uploadScreenshot(jobId, buf);
-          screenshotUrl = await getR2SignedUrl(r2Key);
+          screenshotUrl = await uploadScreenshot(jobId, buf);
         } else {
           screenshotUrl = `data:image/jpeg;base64,${buf.toString("base64")}`;
         }

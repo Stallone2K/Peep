@@ -8,6 +8,7 @@ import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { runScrapeWithStrategy, type ScrapeResult } from "@/server/scraper/strategy";
 import { applyChangeTracking } from "@/server/scraper/change-tracking";
 import { STEALTH_CREDIT_BONUS } from "@/server/proxy/providers";
+import { signedScreenshotUrl } from "@/lib/storage";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
 
 const BASE_CREDITS = 1;
@@ -129,7 +130,7 @@ export async function performScrapeForUser({
         rawHtml: cached.rawHtml ?? undefined,
         links: cached.links,
         images: cached.images,
-        screenshot: cached.screenshotR2Key ?? undefined,
+        screenshot: signedScreenshotUrl(cached.screenshotR2Key),
         pageStatus: cached.pageStatus ?? undefined,
         durationMs: cached.durationMs ?? undefined,
         metadata: { ...(cached.metadata as object), cached: true },
@@ -289,7 +290,7 @@ function formatDbResult(
       rawHtml: result.rawHtml ?? undefined,
       links: result.links,
       images: result.images,
-      screenshot: result.screenshotR2Key ?? undefined,
+      screenshot: signedScreenshotUrl(result.screenshotR2Key),
       json: meta.json ?? undefined,
       summary: meta.summary ?? undefined,
       branding: meta.branding ?? undefined,
@@ -368,6 +369,7 @@ async function runInline({
           rawHtml: out.rawHtml,
           links: out.links ?? [],
           images: out.images ?? [],
+          screenshotR2Key: out.screenshot ?? null,
           metadata: {
             ...out.metadata,
             engineUsed: out.engineUsed,
@@ -395,6 +397,7 @@ async function runInline({
       cached: false,
       data: {
         ...out,
+        screenshot: signedScreenshotUrl(out.screenshot),
         metadata: { ...out.metadata, cached: false, engineUsed: out.engineUsed },
       },
     };

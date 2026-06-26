@@ -65,6 +65,16 @@ export function signKey(key: string, ttlSeconds: number): string {
   return `${expiry.toString(16)}.${hmac(key, expiry)}`;
 }
 
+// Synchronous signed-URL builder for response shaping (formatDbResult etc.).
+// Pass through values that are already URLs or inline data: URIs; sign bare
+// storage keys. 24h TTL so a just-scraped result stays viewable on re-open.
+export function signedScreenshotUrl(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.startsWith("http") || value.startsWith("data:")) return value;
+  const base = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  return `${base}/api/files/${value}?token=${signKey(value, 86_400)}`;
+}
+
 export function verifyKeyToken(key: string, token: string): boolean {
   try {
     const [expHex, sig] = token.split(".");
