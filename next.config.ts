@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "playwright",
     "playwright-core",
+    "patchright",
+    "patchright-core",
     "playwright-extra",
     "puppeteer-extra-plugin-stealth",
     "@cliqz/adblocker-playwright",
