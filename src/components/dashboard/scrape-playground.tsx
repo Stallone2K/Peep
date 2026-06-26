@@ -891,19 +891,27 @@ function FormatPopover({
         <div className="flex flex-col gap-1 p-2">
           {FORMATS.map((f) => {
             const active = formats.has(f.id);
+            const toggle = () => {
+              const next = new Set(formats);
+              if (active) next.delete(f.id);
+              else next.add(f.id);
+              if (next.size === 0) next.add("markdown");
+              onChange(next);
+            };
             return (
-              <button
+              <div
                 key={f.id}
-                type="button"
-                onClick={() => {
-                  const next = new Set(formats);
-                  if (active) next.delete(f.id);
-                  else next.add(f.id);
-                  if (next.size === 0) next.add("markdown");
-                  onChange(next);
+                role="button"
+                tabIndex={0}
+                onClick={toggle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggle();
+                  }
                 }}
                 className={cn(
-                  "hover:bg-muted/40 flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
+                  "hover:bg-muted/40 flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
                 )}
               >
                 <span
@@ -942,7 +950,7 @@ function FormatPopover({
                     </span>
                   </span>
                 ) : null}
-              </button>
+              </div>
             );
           })}
         </div>
