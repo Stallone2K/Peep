@@ -27,32 +27,49 @@ export function extractLinks(html: string, baseUrl: string): string[] {
 export function extractImages(html: string, baseUrl: string): string[] {
   const { document } = parseHTML(html);
   const base = new URL(baseUrl);
-  const seen = new Set<string>();
+  // Map a normalized "same image" key → the first concrete URL we kept, so
+  // responsive variants (Next.js `/_next/image?...&w=640|1080`, `src` +
+  // `srcset` of one element) collapse to a single image.
+  const byKey = new Map<string, string>();
 
-  for (const img of Array.from(document.querySelectorAll("img[src]"))) {
-    const src = img.getAttribute("src");
-    if (!src) continue;
-    if (src.startsWith("data:")) continue;
+  const consider = (raw: string | null | undefined) => {
+    if (!raw || raw.startsWith("data:")) return;
     try {
-      seen.add(new URL(src, base).toString());
+      const u = new URL(raw, base);
+      const key = imageDedupKey(u);
+      if (!byKey.has(key)) byKey.set(key, u.toString());
     } catch {
       // Invalid URL — skip.
     }
+  };
+
+  for (const img of Array.from(document.querySelectorAll("img[src]"))) {
+    consider(img.getAttribute("src"));
   }
-  // Also honour srcset entries — pick the first URL per entry.
   for (const img of Array.from(document.querySelectorAll("img[srcset]"))) {
     const srcset = img.getAttribute("srcset");
     if (!srcset) continue;
     for (const entry of srcset.split(",")) {
-      const url = entry.trim().split(/\s+/)[0];
-      if (!url || url.startsWith("data:")) continue;
-      try {
-        seen.add(new URL(url, base).toString());
-      } catch {
-        // skip
-      }
+      consider(entry.trim().split(/\s+/)[0]);
     }
   }
 
-  return [...seen];
+  return [...byKey.values()];
+}
+
+// Collapse responsive / CDN-resized variants of the same image to one key.
+const RESIZE_PARAMS = ["w", "width", "h", "height", "q", "quality", "dpr", "s", "size", "fit"];
+
+function imageDedupKey(u: URL): string {
+  // Next.js (and similar) image optimizers wrap the real image in a `url`
+  // query param — dedupe on that so every width collapses together.
+  if (u.pathname.endsWith("/_next/image") || u.pathname.endsWith("/image")) {
+    const inner = u.searchParams.get("url");
+    if (inner) return inner.toLowerCase();
+  }
+  // Otherwise strip common resize params so `?w=640` and `?w=1080` match.
+  const params = new URLSearchParams(u.search);
+  for (const p of RESIZE_PARAMS) params.delete(p);
+  const q = params.toString();
+  return `${u.origin}${u.pathname}${q ? `?${q}` : ""}`.toLowerCase();
 }
