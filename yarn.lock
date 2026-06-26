@@ -6158,6 +6158,20 @@ parseurl@^1.3.3:
   resolved "https://registry.yarnpkg.com/parseurl/-/parseurl-1.3.3.tgz#9da19e7bee8d12dff0513ed5b76957793bc2e8d4"
   integrity sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==
 
+patchright-core@1.61.1:
+  version "1.61.1"
+  resolved "https://registry.yarnpkg.com/patchright-core/-/patchright-core-1.61.1.tgz#27d42c91b2d3cf05e8fa65cdf1236e164b72acb8"
+  integrity sha512-d6Ju67DE6OzqlEX3WPvUX2SLEs6iMY1WERit//mpsrT98VHcztaUo0CBw2Lpxq25VdufVEiWEdcc0HnLwdiq6A==
+
+patchright@^1.61.1:
+  version "1.61.1"
+  resolved "https://registry.yarnpkg.com/patchright/-/patchright-1.61.1.tgz#24808009afd2e3e34ddd7f116413caa2ff89ecae"
+  integrity sha512-kZWNZ2tunsBMTBWtARFVWaNvB739GOybTlIPLT91eyx0YERjtUjESawomwO0hnOh6jt1L3Sru0PK62ylYOfqQw==
+  dependencies:
+    patchright-core "1.61.1"
+  optionalDependencies:
+    fsevents "2.3.2"
+
 path-browserify@^1.0.1:
   version "1.0.1"
   resolved "https://registry.yarnpkg.com/path-browserify/-/path-browserify-1.0.1.tgz#d98454a9c3753d5790860f16f68867b9e46be1fd"
