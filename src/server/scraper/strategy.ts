@@ -16,6 +16,7 @@ import {
 } from "@/server/scraper/attributes";
 import { BrowserPool } from "@/server/scraper/browser";
 import { captureScreenshot } from "@/server/scraper/screenshot";
+import { extractBrandingSignals } from "@/server/scraper/branding-extract";
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
@@ -74,6 +75,11 @@ export function pickEngine(input: ScrapeRequestInput): EngineType {
   // If screenshot is requested, need browser
   const wantsScreenshot = input.formats.some((f) => f.type === "screenshot");
   if (wantsScreenshot) return "playwright";
+
+  // Branding needs the rendered page to read real computed colours/fonts
+  // (inferring from HTML text misses Tailwind / external-CSS sites).
+  const wantsBranding = input.formats.some((f) => f.type === "branding");
+  if (wantsBranding) return "playwright";
 
   // If fastMode is on, always HTTP
   if (input.fastMode) return "http";
@@ -296,12 +302,28 @@ async function runPlaywright({
         start,
         engine,
       });
+      // Read real computed-style colours/fonts off the live page while it's
+      // still open — far more accurate than AI-inferring from the HTML.
+      const brandingSignals = wantedTypes.has("branding")
+        ? await extractBrandingSignals(page).catch(() => null)
+        : null;
+
       const withAI = await applyAIFormats(
         base,
         input,
         wantedTypes,
         renderedHtml,
       );
+
+      // Override AI-inferred colours/fonts with the real computed values
+      // (the AI still provides brandName / tagline / typography / ui).
+      if (brandingSignals && withAI.branding) {
+        withAI.branding = {
+          ...withAI.branding,
+          colors: brandingSignals.colors,
+          fonts: brandingSignals.fonts,
+        };
+      }
 
       return {
         ...withAI,
