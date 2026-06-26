@@ -448,6 +448,8 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
             className="max-h-[640px] w-auto rounded"
           />
         </div>
+      ) : tab === "branding" ? (
+        <BrandingView branding={result.data.branding} />
       ) : (
         <ResultContent
           body={
@@ -519,6 +521,152 @@ function ImageGallery({ images }: { images: string[] }) {
           </a>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Visual render of the AI `branding` format: colours as swatches, fonts +
+// typography + UI components. Falls back to a JSON dump for anything unexpected.
+function BrandingView({ branding }: { branding: unknown }) {
+  const b = (branding ?? {}) as {
+    colors?: {
+      primary?: string | null;
+      background?: string | null;
+      text?: string | null;
+      accent?: string[] | null;
+    };
+    fonts?: { sans?: string | null; serif?: string | null; mono?: string | null };
+    typography?: { h1?: string | null; h2?: string | null; body?: string | null };
+    ui?: string[] | null;
+    brandName?: string | null;
+    tagline?: string | null;
+  };
+
+  const swatches: Array<{ name: string; hex: string }> = [];
+  const c = b.colors ?? {};
+  if (c.primary) swatches.push({ name: "Primary", hex: c.primary });
+  if (c.background) swatches.push({ name: "Background", hex: c.background });
+  if (c.text) swatches.push({ name: "Text", hex: c.text });
+  (c.accent ?? []).forEach((hex, i) =>
+    hex ? swatches.push({ name: `Accent ${i + 1}`, hex }) : null,
+  );
+
+  const fonts = Object.entries(b.fonts ?? {}).filter(([, v]) => v) as Array<
+    [string, string]
+  >;
+  const typo = Object.entries(b.typography ?? {}).filter(([, v]) => v) as Array<
+    [string, string]
+  >;
+  const ui = (b.ui ?? []).filter(Boolean);
+  const empty =
+    !b.brandName &&
+    !b.tagline &&
+    swatches.length === 0 &&
+    fonts.length === 0 &&
+    typo.length === 0 &&
+    ui.length === 0;
+
+  if (empty) {
+    return (
+      <p className="text-muted-foreground p-6 text-center text-sm">
+        No Branding Could Be Inferred From This Page.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6 p-4">
+      {(b.brandName || b.tagline) && (
+        <div className="flex flex-col gap-1">
+          {b.brandName && (
+            <h3 className="text-lg font-semibold">{b.brandName}</h3>
+          )}
+          {b.tagline && (
+            <p className="text-muted-foreground text-sm">{b.tagline}</p>
+          )}
+        </div>
+      )}
+
+      {swatches.length > 0 && (
+        <BrandSection title="Colors">
+          <div className="flex flex-wrap gap-4">
+            {swatches.map((s) => (
+              <div key={s.name} className="flex flex-col items-center gap-1.5">
+                <span
+                  className="border-border/60 size-14 rounded-lg border shadow-sm"
+                  style={{ backgroundColor: s.hex }}
+                />
+                <span className="text-[11px] font-medium">{s.name}</span>
+                <span className="text-muted-foreground font-mono text-[10px] uppercase">
+                  {s.hex}
+                </span>
+              </div>
+            ))}
+          </div>
+        </BrandSection>
+      )}
+
+      {fonts.length > 0 && (
+        <BrandSection title="Fonts">
+          <div className="flex flex-col gap-2">
+            {fonts.map(([k, v]) => (
+              <div key={k} className="flex items-baseline gap-3">
+                <span className="text-muted-foreground w-12 text-xs capitalize">
+                  {k}
+                </span>
+                <span className="text-base" style={{ fontFamily: v }}>
+                  {v}
+                </span>
+              </div>
+            ))}
+          </div>
+        </BrandSection>
+      )}
+
+      {typo.length > 0 && (
+        <BrandSection title="Typography">
+          <dl className="flex flex-col gap-1.5 text-sm">
+            {typo.map(([k, v]) => (
+              <div key={k} className="flex gap-3">
+                <dt className="text-muted-foreground w-12 uppercase">{k}</dt>
+                <dd className="flex-1">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </BrandSection>
+      )}
+
+      {ui.length > 0 && (
+        <BrandSection title="UI Components">
+          <div className="flex flex-wrap gap-1.5">
+            {ui.map((u) => (
+              <span
+                key={u}
+                className="bg-muted/60 rounded px-2 py-0.5 font-mono text-xs"
+              >
+                {u}
+              </span>
+            ))}
+          </div>
+        </BrandSection>
+      )}
+    </div>
+  );
+}
+
+function BrandSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <span className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+        {title}
+      </span>
+      {children}
     </div>
   );
 }
@@ -951,6 +1099,13 @@ const VARIANTS: Partial<Record<FormatId, [FormatId, FormatId]>> = {
   html: ["html", "rawHtml"], // Cleaned · Raw
 };
 
+// Which variant gets added when you first tick the format. Screenshots
+// default to full-page (what you usually want from a scraper); HTML defaults
+// to the left (cleaned) variant.
+const VARIANT_DEFAULT: Partial<Record<FormatId, FormatId>> = {
+  screenshot: "screenshotFull",
+};
+
 function FormatPopover({
   formats,
   onChange,
@@ -1003,7 +1158,7 @@ function FormatPopover({
                 next.delete(leftId);
                 next.delete(rightId);
               } else {
-                next.add(leftId);
+                next.add(VARIANT_DEFAULT[f.id] ?? leftId);
               }
               if (next.size === 0) next.add("markdown");
               onChange(next);

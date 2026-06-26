@@ -6,18 +6,22 @@ export type ScreenshotOpts = {
   viewport?: { width: number; height: number };
 };
 
-// Capture a screenshot from a Playwright page. Returns a JPEG buffer
-// by default (smaller than PNG, fine for preview/archival). The buffer
-// is uploaded to R2 by the caller.
+// Capture a screenshot from a Playwright page. Returns a JPEG buffer by
+// default (smaller than PNG, fine for preview/archival). The caller stores it.
 export async function captureScreenshot(
   page: Page,
   opts: ScreenshotOpts = {},
 ): Promise<Buffer> {
-  // Apply custom viewport if requested
   if (opts.viewport) {
     await page.setViewportSize(opts.viewport);
-    // Wait a beat for reflow
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(300); // wait for reflow
+  }
+
+  // For full-page shots, scroll the whole page first so lazy-loaded images /
+  // sections actually render before we capture — otherwise the bottom of the
+  // page comes out blank.
+  if (opts.fullPage) {
+    await autoScroll(page);
   }
 
   const buf = await page.screenshot({
@@ -27,4 +31,28 @@ export async function captureScreenshot(
   });
 
   return Buffer.from(buf);
+}
+
+// Scroll top→bottom in steps (triggering lazy loaders), let images settle,
+// then return to the top. Hard-capped so infinite-scroll pages can't loop.
+async function autoScroll(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      let total = 0;
+      let ticks = 0;
+      const step = 500;
+      const timer = setInterval(() => {
+        window.scrollBy(0, step);
+        total += step;
+        ticks += 1;
+        if (total >= document.body.scrollHeight || ticks > 40) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 80);
+    });
+  });
+  await page.waitForTimeout(400); // let lazy images decode
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(200);
 }
