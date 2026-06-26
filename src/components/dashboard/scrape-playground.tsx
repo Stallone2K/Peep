@@ -251,7 +251,6 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
     "markdown" | "json" | "images" | "html" | "summary" | "branding" | "screenshot"
   >(images.length > 0 && !result.data.markdown ? "images" : "markdown");
   const markdown = result.data.markdown ?? "";
-  const brandingBody = JSON.stringify(result.data.branding ?? {}, null, 2);
   const jsonBody = JSON.stringify(
     {
       ...result.data,
@@ -459,9 +458,7 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
                 ? html
                 : tab === "summary"
                   ? summary
-                  : tab === "branding"
-                    ? brandingBody
-                    : jsonBody
+                  : jsonBody
           }
           copyLabel={
             tab === "markdown"
@@ -470,9 +467,7 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
                 ? "Copy HTML"
                 : tab === "summary"
                   ? "Copy Summary"
-                  : tab === "branding"
-                    ? "Copy Branding"
-                    : "Copy JSON"
+                  : "Copy JSON"
           }
         />
       )}
