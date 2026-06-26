@@ -1,0 +1,17 @@
+[package]
+name = "peep-queue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+peep-contracts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+redis = { version = "0.27", features = ["tokio-comp", "aio"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

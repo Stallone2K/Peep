@@ -42,6 +42,8 @@ type SearchResultView = {
   title: string;
   description?: string;
   source: SourceId;
+  imageUrl?: string;
+  thumbnail?: string;
 };
 
 export type RecentSearchRun = {
@@ -547,11 +549,67 @@ function SearchResultsList({ results }: { results: SearchResultView[] }) {
       </div>
     );
   }
+  // Image results render as a thumbnail gallery, not text cards.
+  const isImages = results.every((r) => r.source === "images" || !!r.imageUrl);
+  if (isImages) return <ImageResultsGrid results={results} />;
   return (
     <div className="flex flex-col gap-6">
       {results.map((r, i) => (
         <SearchResultBlock key={`${i}-${r.url}`} result={r} position={i + 1} />
       ))}
+    </div>
+  );
+}
+
+// Thumbnail gallery for image-source results — click opens the full image;
+// hover shows the source page host. Broken hotlinks hide themselves.
+function ImageResultsGrid({ results }: { results: SearchResultView[] }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground text-xs">
+          {results.length} Image{results.length === 1 ? "" : "s"}
+        </span>
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+          onClick={() =>
+            navigator.clipboard.writeText(
+              results.map((r) => r.imageUrl ?? r.url).join("\n"),
+            )
+          }
+        >
+          <Copy className="size-3" /> Copy All URLs
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+        {results.map((r, i) => {
+          const full = r.imageUrl ?? r.url;
+          const thumb = r.thumbnail ?? full;
+          return (
+            <a
+              key={`${i}-${full}`}
+              href={full}
+              target="_blank"
+              rel="noreferrer"
+              title={`${r.title || ""}\n${safeHost(r.url) ?? r.url}`}
+              className="border-border/60 bg-muted/30 group relative aspect-square overflow-hidden rounded-lg border"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={thumb}
+                alt={r.title || ""}
+                loading="lazy"
+                className="size-full object-cover transition group-hover:scale-105"
+                onError={(e) => {
+                  (e.currentTarget.parentElement as HTMLElement).style.display =
+                    "none";
+                }}
+              />
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 }

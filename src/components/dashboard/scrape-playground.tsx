@@ -240,7 +240,10 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
     (metadata.readabilityTitle as string | undefined) ??
     host;
 
-  const [tab, setTab] = useState<"markdown" | "json">("markdown");
+  const images = result.data.images ?? [];
+  const [tab, setTab] = useState<"markdown" | "json" | "images">(
+    images.length > 0 && !result.data.markdown ? "images" : "markdown",
+  );
   const markdown = result.data.markdown ?? "";
   const jsonBody = JSON.stringify(
     {
@@ -356,12 +359,72 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
           </span>
           JSON
         </TabButton>
+        {images.length > 0 && (
+          <TabButton active={tab === "images"} onClick={() => setTab("images")}>
+            <Images
+              className={cn(
+                "size-4",
+                tab === "images" ? "text-foreground" : "text-muted-foreground",
+              )}
+            />
+            Images ({images.length})
+          </TabButton>
+        )}
       </div>
 
-      <ResultContent
-        body={tab === "markdown" ? markdown : jsonBody}
-        copyLabel={tab === "markdown" ? "Copy As Markdown" : "Copy JSON"}
-      />
+      {tab === "images" ? (
+        <ImageGallery images={images} />
+      ) : (
+        <ResultContent
+          body={tab === "markdown" ? markdown : jsonBody}
+          copyLabel={tab === "markdown" ? "Copy As Markdown" : "Copy JSON"}
+        />
+      )}
+    </div>
+  );
+}
+
+// Render the `images` format as an actual thumbnail grid (not raw URLs).
+// Broken/hotlink-blocked images hide themselves so the grid stays clean.
+function ImageGallery({ images }: { images: string[] }) {
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground text-xs">
+          {images.length} Image{images.length === 1 ? "" : "s"} Found
+        </span>
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+          onClick={() => navigator.clipboard.writeText(images.join("\n"))}
+        >
+          Copy All URLs
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        {images.map((src, i) => (
+          <a
+            key={`${src}-${i}`}
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            title={src}
+            className="border-border/60 bg-muted/30 group relative aspect-square overflow-hidden rounded-lg border"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt=""
+              loading="lazy"
+              className="size-full object-cover transition group-hover:scale-105"
+              onError={(e) => {
+                (e.currentTarget.parentElement as HTMLElement).style.display =
+                  "none";
+              }}
+            />
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

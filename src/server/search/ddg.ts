@@ -35,12 +35,106 @@ export class DuckDuckGoSearchProvider implements SearchProvider {
   }
 
   async search(opts: SearchOptions): Promise<SearchResult[]> {
-    // DDG HTML only returns web results — collapse news/images into
-    // web so callers don't get an empty array for those sources.
-    if (!opts.sources.some((s: SearchSource) => s === "web")) {
-      return [];
-    }
+    const sources = new Set<SearchSource>(opts.sources);
+    const out: SearchResult[] = [];
 
+    // Real keyless image search via DDG's i.js endpoint (no API key).
+    if (sources.has("images")) {
+      out.push(...(await this.searchImages(opts)));
+    }
+    // Web (and news, which DDG's HTML endpoint folds into web).
+    if (sources.has("web") || sources.has("news")) {
+      out.push(...(await this.searchWeb(opts)));
+    }
+    return out.slice(0, opts.limit);
+  }
+
+  // ─── Keyless image search ──────────────────────────────────────────
+  // DDG's image API (i.js) needs a per-query `vqd` token that's embedded
+  // in the search page. We scrape the token, then hit i.js for JSON. No
+  // key, no account — our own code against DDG's public endpoints.
+  private async searchImages(opts: SearchOptions): Promise<SearchResult[]> {
+    const vqd = await this.getVqd(opts.query);
+    if (!vqd) return [];
+
+    const region = opts.country
+      ? `${opts.country.toLowerCase()}-${opts.country.toLowerCase()}`
+      : "us-en";
+    const params = new URLSearchParams({
+      l: region,
+      o: "json",
+      q: opts.query,
+      vqd,
+      f: ",,,,,",
+      p: "1",
+    });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(`https://duckduckgo.com/i.js?${params}`, {
+        signal: controller.signal,
+        headers: {
+          "user-agent": USER_AGENT,
+          accept: "application/json, text/javascript, */*; q=0.01",
+          referer: "https://duckduckgo.com/",
+          "accept-language": "en-US,en;q=0.9",
+          "x-requested-with": "XMLHttpRequest",
+        },
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        results?: Array<{
+          image?: string;
+          thumbnail?: string;
+          title?: string;
+          url?: string;
+        }>;
+      };
+      return (data.results ?? [])
+        .filter((r) => r.image)
+        .slice(0, opts.limit)
+        .map((r) => ({
+          url: r.url || r.image!, // source page (fallback to image)
+          title: r.title || "",
+          source: "images" as const,
+          imageUrl: r.image,
+          thumbnail: r.thumbnail,
+        }));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async getVqd(query: string): Promise<string | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
+        {
+          signal: controller.signal,
+          headers: {
+            "user-agent": USER_AGENT,
+            "accept-language": "en-US,en;q=0.9",
+          },
+        },
+      );
+      const body = await res.text();
+      const m =
+        body.match(/vqd=["']([^"']+)["']/) ?? body.match(/vqd=([\d-]+)&/);
+      return m ? m[1]! : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // ─── Web search (HTML endpoint) ────────────────────────────────────
+  private async searchWeb(opts: SearchOptions): Promise<SearchResult[]> {
     const form = new URLSearchParams({ q: opts.query });
     if (opts.country) form.set("kl", `${opts.country.toLowerCase()}-${opts.country.toLowerCase()}`);
     if (opts.freshness) {

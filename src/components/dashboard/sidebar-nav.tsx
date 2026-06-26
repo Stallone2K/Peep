@@ -11,6 +11,7 @@ import {
   FileText,
   Globe,
   HardHat,
+  Images,
   KeyRound,
   LampDesk,
   Map as MapIcon,

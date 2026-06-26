@@ -1,0 +1,38 @@
+# Peep Rust core — Cargo workspace.
+# Mirrors src/server/scraper/* so the strangler migration is auditable
+# crate-by-crate. See ../../.claude/plans/hashed-purring-cascade.md.
+[workspace]
+resolver = "2"
+members = [
+    "crates/peep-contracts",
+    "crates/peep-core",
+    "crates/peep-store",
+    "crates/peep-queue",
+    "crates/peep-crawl",
+    "bins/worker",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.90"
+
+# Shared dependency versions — member crates opt in via `workspace = true`.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+peep-contracts = { path = "crates/peep-contracts" }
+peep-core = { path = "crates/peep-core" }
+peep-store = { path = "crates/peep-store" }
+peep-queue = { path = "crates/peep-queue" }
+peep-crawl = { path = "crates/peep-crawl" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

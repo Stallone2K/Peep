@@ -9,6 +9,11 @@ import {
 } from "@/server/scraper/readability";
 import { htmlToMarkdown } from "@/server/scraper/turndown";
 import { extractLinks, extractImages } from "@/server/scraper/links";
+import {
+  extractAttributes,
+  type AttributeSelector,
+  type AttributeResult,
+} from "@/server/scraper/attributes";
 import { BrowserPool } from "@/server/scraper/browser";
 import { captureScreenshot } from "@/server/scraper/screenshot";
 import { executeActions, type Action } from "@/server/scraper/actions";
@@ -46,6 +51,7 @@ export type ScrapeResult = {
   rawHtml?: string;
   links?: string[];
   images?: string[];
+  attributes?: AttributeResult[];
   screenshot?: string; // signed URL or null
   json?: unknown;
   summary?: string;
@@ -382,6 +388,13 @@ function buildResultFromHtml(opts: {
 
   if (wantedTypes.has("images")) {
     result.images = extractImages(html, finalUrl);
+  }
+
+  if (wantedTypes.has("attributes")) {
+    const attrFmt = input.formats.find((f) => f.type === "attributes") as
+      | { selectors?: AttributeSelector[] }
+      | undefined;
+    result.attributes = extractAttributes(html, attrFmt?.selectors ?? []);
   }
 
   if (readable) {

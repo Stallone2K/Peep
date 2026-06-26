@@ -588,6 +588,53 @@ Kill in this order: MDX docs (Phase 8) → Python SDK (Phase 8) → `branding`/`
 
 ---
 
+## 7b. Roadmap v2 — Status · Rust Core · Parity Priority · Extras (2026-06)
+
+Phases 0–9 above were the original GA build order. As of 2026-06 the **core is shipped
+and the focus shifts to three parallel tracks**. The living feature checklist is
+[PARITY.md](PARITY.md); the Rust design detail is in
+`.claude/plans/hashed-purring-cascade.md`. This section is the phased roadmap for what's left.
+
+### Status snapshot
+- **✅ Shipped (Phases 1–7):** scrape, crawl (+SSE), map, search, batch, extract,
+  change-tracking, stealth/proxy escalation, webhooks, credits, rate-limit, idempotency,
+  dashboard + playgrounds. **Core-API parity with Firecrawl reached.**
+- **✅ Shipped this session (extras):** `attributes` format · `/search` image-harvest
+  pass-through · ⭐ **Asset Collector** (`/collect` + playground) · self-hosted
+  Postgres/Redis compose · dead-Upstash→local-Redis perf fix · Rust core **R0**.
+- **⏳ Remaining from original plan:** Phase 8 (SDKs/MCP/CLI/docs), Phase 9
+  (billing/observability/prod deploy), and deferred `[D]` items (agent, interact/sandbox, parse).
+
+### Track R — Rust Core Migration (strangler; detail in the plan file)
+Re-platform the hot path to Rust for 10–100× HTTP-path throughput at a fraction of memory.
+HTTP server = **`axum`** (control plane only); Rust is a **queue worker**, not the public API.
+- **R0 ✅** — workspace, wire contracts, BullMQ interop verified, self-hosted infra.
+- **R1** — Rust HTTP scrape path (`fetcher → block_detect → readability → markdown → links`)
+  behind a queue-routing flag; gated by the differential parity harness vs TS.
+- **R2** — Node Playwright **render sidecar** + full Rust scrape worker; retire TS scrape worker. `axum` `/health`+`/metrics` lands here.
+- **R3** — crawl worker in Rust (frontier/sitemap/filters, or `spider`).
+- **R4** — map + batch in Rust.
+- **R5** — perf tuning, `tracing`+OTel observability, retire dead TS.
+
+### Track P — Parity Priority (close the Firecrawl gaps)
+- **P0 (do next, high value / low effort):** `highlights` format · `/parse` (PDF→markdown) ·
+  **MCP server** (thin wrapper over existing REST — biggest reach multiplier) · Asset Collector polish.
+- **P1:** Node/TS SDK → Python SDK · `/interact` stateful session (build on existing actions
+  engine) · CLI · `audio` format.
+- **P2:** `/agent` (FIRE-1-style) · Browser Sandbox · integrations (LangChain, LlamaIndex,
+  n8n, Zapier, Make) · Rust SDK (once Rust API stabilizes).
+
+### Track X — Extras / Peep-Originals (go *beyond* Firecrawl)
+- ⭐ **Asset Collector** (shipped) — one query → web-wide image harvest → deduped gallery.
+- ⭐ **Rust core** + ⭐ **$0 fully self-hostable** on one VPS (no required paid SaaS).
+- Backlog: asset-pack/video export · reverse-image & entity search · scheduled change-watch
+  with email-diff · one-shot "research bundle" (search→crawl→extract→cite) · local-LLM (Ollama) extraction.
+
+**Sequencing:** Tracks P and X ship features in TS now (the running app); Track R re-platforms
+the engine underneath without changing the API contract. P0 + R1 run in parallel.
+
+---
+
 ## 8. AI extraction design
 
 ### Modes

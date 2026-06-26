@@ -24,6 +24,10 @@ export type SearchResult = {
   html?: string;
   rawHtml?: string;
   links?: string[];
+  // Every image/asset URL found on the result page — the key field for
+  // "search an event, harvest all its images" workflows.
+  images?: string[];
+  attributes?: unknown[];
   metadata?: Record<string, unknown>;
 };
 

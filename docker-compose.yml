@@ -1,0 +1,69 @@
+# Peep — self-hosted infrastructure (single VPS, $0).
+# Mirrors the Daftar convention: postgres:16-alpine + redis:7-alpine,
+# loopback-bound ports, named volumes, healthchecks. File storage is a
+# local-disk volume on the VPS (no MinIO/R2) — artifacts land in
+# /var/peep/artifacts inside the app containers via the peep_artifacts volume.
+#
+# Phase R0 ships the data layer (postgres, redis, artifacts volume) so the
+# existing Next.js app + worker can run against it today. App service
+# definitions (web, peep-worker, peep-render, caddy) are added as their
+# Dockerfiles land in later migration phases.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: peep-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: peep
+      POSTGRES_PASSWORD: peep
+      POSTGRES_DB: peep
+    # Host port 5433 to avoid colliding with other local Postgres instances
+    # (e.g. the Daftar dev stack). In-container port stays 5432, so
+    # service-to-service URLs (postgres:5432) are unchanged in production.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - peep_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peep -d peep"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: peep-redis
+    restart: unless-stopped
+    # appendonly = durable queue state across restarts; LRU caps memory so a
+    # busy cache never OOMs the box. BullMQ + pub/sub + rate-limit keys all
+    # live here. Raise --maxmemory to match the VPS once sized.
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "512mb",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    # Host port 6380 to avoid colliding with other local Redis instances
+    # (e.g. the Daftar dev stack). In-container port stays 6379.
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - peep_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  peep_pg_data:
+  peep_redis_data:
+  # Local-disk artifact store on the VPS 256 GB — screenshots + raw HTML.
+  # Mounted at /var/peep/artifacts in web/peep-worker/peep-render once those
+  # services are added. Replaces Cloudflare R2.
+  peep_artifacts:

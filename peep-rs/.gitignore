@@ -1,0 +1,2 @@
+# Rust build artifacts. Cargo.lock IS committed (workspace ships binaries).
+/target

@@ -145,6 +145,8 @@ async function enrichWithScrape({
           result.html = data.html as string | undefined;
           result.rawHtml = data.rawHtml as string | undefined;
           result.links = data.links as string[] | undefined;
+          result.images = data.images as string[] | undefined;
+          result.attributes = data.attributes as unknown[] | undefined;
           result.metadata = data.metadata as
             | Record<string, unknown>
             | undefined;

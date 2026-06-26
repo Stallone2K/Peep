@@ -1,0 +1,21 @@
+[package]
+name = "peep-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "peep-worker"
+path = "src/main.rs"
+
+[dependencies]
+peep-contracts = { workspace = true }
+peep-core = { workspace = true }
+peep-store = { workspace = true }
+peep-queue = { workspace = true }
+peep-crawl = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }

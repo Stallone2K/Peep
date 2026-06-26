@@ -34,9 +34,16 @@ async function ActivityContent() {
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
-  const [jobs, crawls] = await Promise.all([
+  const [jobs, crawls, batches] = await Promise.all([
     db.scrapeJob.findMany({
-      where: { userId: session.user.id, crawlJobId: null },
+      // Exclude both crawl AND batch children so Recent Scrapes shows
+      // only user-initiated one-off scrapes; grouped jobs have their
+      // own widgets above.
+      where: {
+        userId: session.user.id,
+        crawlJobId: null,
+        batchJobId: null,
+      },
       orderBy: { createdAt: "desc" },
       take: 100,
       select: {
@@ -67,9 +74,24 @@ async function ActivityContent() {
         _count: { select: { jobs: true } },
       },
     }),
+    db.batchJob.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        total: true,
+        completed: true,
+        failed: true,
+        createdAt: true,
+        completedAt: true,
+        integration: true,
+      },
+    }),
   ]);
 
-  if (jobs.length === 0 && crawls.length === 0) {
+  if (jobs.length === 0 && crawls.length === 0 && batches.length === 0) {
     return (
       <div className="border-border/60 bg-card/20 flex flex-col items-center gap-4 rounded-lg border px-6 py-16 text-center">
         <div className="border-border/60 flex size-12 items-center justify-center rounded-full border">
@@ -131,10 +153,76 @@ async function ActivityContent() {
         </WidgetCard>
       ) : null}
 
+      {batches.length > 0 ? (
+        <WidgetCard>
+          <WidgetHeader
+            title="Recent Batches"
+            subtitle={`Showing ${batches.length} Most Recent Batch${batches.length === 1 ? "" : "es"}. A Batch Scrapes Many URLs In Parallel — Completion Percent Counts Every Child.`}
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-border/60 text-muted-foreground border-t">
+                <tr>
+                  <Th>When</Th>
+                  <Th>Batch ID</Th>
+                  <Th>Status</Th>
+                  <Th>Progress</Th>
+                  <Th className="text-right">Failed</Th>
+                  <Th>Integration</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-border/40 divide-y">
+                {batches.map((b) => {
+                  const pct =
+                    b.total > 0
+                      ? Math.round(
+                          ((b.completed + b.failed) / b.total) * 100,
+                        )
+                      : 0;
+                  return (
+                    <tr key={b.id}>
+                      <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                        {b.createdAt
+                          .toISOString()
+                          .slice(0, 19)
+                          .replace("T", " ")}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs">
+                        {b.id.slice(0, 10)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <StatusBadge status={b.status} />
+                      </td>
+                      <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                        {b.completed + b.failed}/{b.total}
+                        <span className="ml-2 opacity-60">({pct}%)</span>
+                      </td>
+                      <td
+                        className={cn(
+                          "px-4 py-2.5 text-right font-mono text-xs",
+                          b.failed > 0
+                            ? "text-destructive"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {b.failed}
+                      </td>
+                      <td className="text-muted-foreground px-4 py-2.5 font-mono text-xs">
+                        {b.integration ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </WidgetCard>
+      ) : null}
+
       <WidgetCard>
       <WidgetHeader
         title="Recent Scrapes"
-        subtitle={`Showing ${jobs.length} Most Recent Job${jobs.length === 1 ? "" : "s"}. Child Scrapes From Crawls Are Grouped Above.`}
+        subtitle={`Showing ${jobs.length} Most Recent Job${jobs.length === 1 ? "" : "s"}. Child Scrapes From Crawls And Batches Are Grouped Above.`}
       />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

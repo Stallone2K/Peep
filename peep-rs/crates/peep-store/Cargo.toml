@@ -1,0 +1,14 @@
+[package]
+name = "peep-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+peep-contracts = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+# sqlx (Postgres) + cuid2 added in R1 when the first DB writes land.
