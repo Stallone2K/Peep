@@ -701,6 +701,30 @@ function CrawlProgressPanel({
 }) {
   const [status, setStatus] = useState<CrawlStatus | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [viewPage, setViewPage] = useState<{
+    url: string;
+    loading: boolean;
+    markdown: string | null;
+    json: unknown;
+  } | null>(null);
+
+  async function openPage(pageJobId: string, url: string) {
+    setViewPage({ url, loading: true, markdown: null, json: null });
+    try {
+      const res = await fetch(
+        `/api/dashboard/playground/crawl/${jobId}/page/${pageJobId}`,
+      );
+      const j = await res.json();
+      setViewPage({
+        url,
+        loading: false,
+        markdown: res.ok && j.success ? (j.markdown ?? null) : null,
+        json: res.ok && j.success ? (j.json ?? null) : null,
+      });
+    } catch {
+      setViewPage({ url, loading: false, markdown: null, json: null });
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -802,9 +826,13 @@ function CrawlProgressPanel({
       {status && status.recent.length > 0 ? (
         <div className="border-border/60 flex flex-col divide-y divide-border/40 border-t">
           {status.recent.map((r) => (
-            <div
+            <button
               key={r.jobId}
-              className="flex items-center gap-3 px-1 py-2 text-sm"
+              type="button"
+              onClick={() => r.status === "done" && openPage(r.jobId, r.url)}
+              disabled={r.status !== "done"}
+              title={r.status === "done" ? "View Scraped Content" : undefined}
+              className="hover:bg-muted/30 flex w-full items-center gap-3 px-1 py-2 text-left text-sm transition-colors disabled:cursor-default disabled:hover:bg-transparent"
             >
               <span
                 className={cn(
@@ -835,10 +863,62 @@ function CrawlProgressPanel({
                   </span>
                 )}
               </span>
-            </div>
+            </button>
           ))}
         </div>
       ) : null}
+
+      {viewPage ? (
+        <PageContentModal page={viewPage} onClose={() => setViewPage(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+function PageContentModal({
+  page,
+  onClose,
+}: {
+  page: { url: string; loading: boolean; markdown: string | null; json: unknown };
+  onClose: () => void;
+}) {
+  const hasJson = page.json != null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="border-border/60 bg-card flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-border/60 flex items-center justify-between gap-3 border-b px-4 py-3">
+          <span className="text-muted-foreground truncate font-mono text-xs">
+            {page.url}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground shrink-0 text-sm"
+          >
+            Close
+          </button>
+        </div>
+        <div className="overflow-auto p-4">
+          {page.loading ? (
+            <p className="text-muted-foreground text-sm">Loading…</p>
+          ) : page.markdown || hasJson ? (
+            <pre className="text-foreground/90 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+              {page.markdown ??
+                (hasJson ? JSON.stringify(page.json, null, 2) : "")}
+            </pre>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No Content Captured For This Page.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

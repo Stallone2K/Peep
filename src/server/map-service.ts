@@ -83,7 +83,49 @@ export async function performMapForUser({
     add(input.url); // ensure root itself is present
   }
 
+  // Subdomain discovery via certificate-transparency logs (crt.sh — free,
+  // keyless). The sitemap + homepage rarely link to other subdomains, so
+  // without this `includeSubdomains` finds almost none. Each discovered
+  // subdomain is surfaced as its root URL.
+  if (input.includeSubdomains && collected.size < input.limit) {
+    const registrable = rootHost.split(".").slice(-2).join(".");
+    const subs = await discoverSubdomains(registrable);
+    for (const host of subs) {
+      add(`https://${host}/`);
+      if (collected.size >= input.limit) break;
+    }
+  }
+
   return { links: Array.from(collected) };
+}
+
+// Query crt.sh for every hostname that's ever had a TLS cert issued under the
+// registrable domain. Returns bare subdomain hosts (wildcards/garbage dropped).
+async function discoverSubdomains(registrable: string): Promise<string[]> {
+  const url = `https://crt.sh/?q=${encodeURIComponent("%." + registrable)}&output=json`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "user-agent": "PeepBot/1.0", accept: "application/json" },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as Array<{ name_value?: string }>;
+    const hosts = new Set<string>();
+    for (const row of data) {
+      for (const name of (row.name_value ?? "").split("\n")) {
+        const h = name.trim().toLowerCase().replace(/^\*\./, "");
+        if (!h || h.includes("*") || h.includes(" ") || h.includes("@")) continue;
+        if (h === registrable || h.endsWith("." + registrable)) hosts.add(h);
+      }
+    }
+    return Array.from(hosts);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Minimal eTLD+1 comparator — matches server/crawl/filters so /map
