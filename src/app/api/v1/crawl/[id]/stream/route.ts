@@ -16,10 +16,10 @@ import { NotFoundError, UnauthorizedError, toJsonError } from "@/lib/errors";
 // - The "watch my crawl" interaction is strictly server → client, so
 //   WebSocket's bidirectional extra isn't earning its keep.
 
-export const dynamic = "force-dynamic"; // SSE must never be cached
-// NOTE: no `export const runtime` — it's incompatible with
-// next.config cacheComponents, and route handlers already run in the
-// Node.js runtime by default (so ioredis is fine here).
+// NOTE: no route segment configs (`dynamic`/`runtime`) — both are
+// rejected by next.config cacheComponents. This GET reads the request
+// (auth token, SSE), so it's dynamic by default, and route handlers run
+// in the Node.js runtime — ioredis + never-cached streaming both work.
 
 export async function GET(
   req: Request,
