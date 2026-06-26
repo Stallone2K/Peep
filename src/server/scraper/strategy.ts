@@ -322,6 +322,7 @@ async function runPlaywright({
           ...withAI.branding,
           colors: brandingSignals.colors,
           fonts: brandingSignals.fonts,
+          design: brandingSignals.design,
         };
       }
 

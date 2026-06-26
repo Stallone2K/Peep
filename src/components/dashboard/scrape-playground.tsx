@@ -535,7 +535,22 @@ function BrandingView({ branding }: { branding: unknown }) {
     ui?: string[] | null;
     brandName?: string | null;
     tagline?: string | null;
+    design?: {
+      cssVariables?: Record<string, string>;
+      typeScale?: Record<
+        string,
+        { size?: string; weight?: string; lineHeight?: string; family?: string }
+      >;
+      radii?: string[];
+      shadows?: string[];
+      consistency?: { colors?: number; fonts?: number; radii?: number };
+    };
   };
+  const design = b.design ?? {};
+  const cssVars = Object.entries(design.cssVariables ?? {});
+  const typeScale = Object.entries(design.typeScale ?? {});
+  const isColor = (v: string) =>
+    /^#|^rgb|^hsl|^oklch/i.test(v.trim());
 
   const swatches: Array<{ name: string; hex: string }> = [];
   const c = b.colors ?? {};
@@ -559,7 +574,9 @@ function BrandingView({ branding }: { branding: unknown }) {
     swatches.length === 0 &&
     fonts.length === 0 &&
     typo.length === 0 &&
-    ui.length === 0;
+    ui.length === 0 &&
+    cssVars.length === 0 &&
+    typeScale.length === 0;
 
   if (empty) {
     return (
@@ -642,6 +659,105 @@ function BrandingView({ branding }: { branding: unknown }) {
                 {u}
               </span>
             ))}
+          </div>
+        </BrandSection>
+      )}
+
+      {typeScale.length > 0 && (
+        <BrandSection title="Type Scale">
+          <div className="flex flex-col gap-1.5 text-sm">
+            {typeScale.map(([sel, t]) => (
+              <div key={sel} className="flex items-baseline gap-3">
+                <span className="text-muted-foreground w-14 font-mono text-xs uppercase">
+                  {sel}
+                </span>
+                <span className="font-mono text-xs">
+                  {t.size} · {t.weight} · {t.lineHeight}
+                </span>
+                <span className="text-muted-foreground truncate text-xs">
+                  {t.family}
+                </span>
+              </div>
+            ))}
+          </div>
+        </BrandSection>
+      )}
+
+      {cssVars.length > 0 && (
+        <BrandSection title={`Design Tokens (${cssVars.length})`}>
+          <div className="border-border/50 bg-background/40 grid max-h-64 grid-cols-1 gap-x-6 gap-y-1 overflow-auto rounded-lg border p-3 sm:grid-cols-2">
+            {cssVars.map(([name, val]) => (
+              <div key={name} className="flex items-center gap-2 text-xs">
+                {isColor(val) && (
+                  <span
+                    className="border-border/60 size-3.5 shrink-0 rounded border"
+                    style={{ backgroundColor: val }}
+                  />
+                )}
+                <span className="text-orange-300/90 font-mono">{name}</span>
+                <span className="text-muted-foreground truncate font-mono">
+                  {val}
+                </span>
+              </div>
+            ))}
+          </div>
+        </BrandSection>
+      )}
+
+      {((design.radii?.length ?? 0) > 0 ||
+        (design.shadows?.length ?? 0) > 0) && (
+        <BrandSection title="Radii & Shadows">
+          <div className="flex flex-col gap-3">
+            {design.radii && design.radii.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {design.radii.map((r) => (
+                  <span
+                    key={r}
+                    className="border-border/60 bg-muted/40 inline-flex items-center gap-1.5 border px-2 py-1 font-mono text-[11px]"
+                    style={{ borderRadius: r }}
+                  >
+                    {r}
+                  </span>
+                ))}
+              </div>
+            )}
+            {design.shadows && design.shadows.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {design.shadows.map((sh, i) => (
+                  <span
+                    key={i}
+                    title={sh}
+                    className="bg-card size-10 rounded-md"
+                    style={{ boxShadow: sh }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </BrandSection>
+      )}
+
+      {design.consistency && (
+        <BrandSection title="Consistency">
+          <div className="text-muted-foreground flex gap-4 text-xs">
+            <span>
+              <span className="text-foreground font-medium">
+                {design.consistency.colors ?? 0}
+              </span>{" "}
+              Colors
+            </span>
+            <span>
+              <span className="text-foreground font-medium">
+                {design.consistency.fonts ?? 0}
+              </span>{" "}
+              Fonts
+            </span>
+            <span>
+              <span className="text-foreground font-medium">
+                {design.consistency.radii ?? 0}
+              </span>{" "}
+              Radii
+            </span>
           </div>
         </BrandSection>
       )}

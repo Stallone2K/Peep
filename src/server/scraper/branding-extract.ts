@@ -1,5 +1,12 @@
 import type { Page } from "playwright";
 
+export type TypeStyle = {
+  size: string;
+  weight: string;
+  lineHeight: string;
+  family: string;
+};
+
 export type BrandingSignals = {
   colors: {
     primary: string | null;
@@ -8,17 +15,23 @@ export type BrandingSignals = {
     accent: string[];
   };
   fonts: { sans: string | null; serif: string | null; mono: string | null };
+  // Frontend-dev-facing design system extracted from the rendered page.
+  design: {
+    cssVariables: Record<string, string>; // real design tokens from :root
+    typeScale: Record<string, TypeStyle>; // h1..h4 / p / button / a
+    radii: string[]; // border-radius scale (most common first)
+    shadows: string[]; // box-shadow scale
+    consistency: { colors: number; fonts: number; radii: number };
+  };
 };
 
-// Pull REAL brand colours + fonts from the rendered page via computed styles.
-// Far more accurate than inferring from HTML text, which misses Tailwind /
-// external-CSS sites entirely.
+// Pull the REAL design system off the rendered page via computed styles +
+// stylesheets. Accurate where text-inference fails (Tailwind / external CSS).
 //
-// IMPORTANT: the page.evaluate callback must contain NO named inner functions.
-// tsx/esbuild injects a `__name(...)` helper around named functions/const
-// arrows; when Playwright serialises the callback into the browser that helper
-// is undefined → "ReferenceError: __name is not defined". So the callback only
-// gathers raw computed-style strings, and all parsing happens here in Node.
+// IMPORTANT: the page.evaluate callback must contain NO named inner functions
+// (named consts / declarations). tsx/esbuild wraps those with a `__name(...)`
+// helper that doesn't exist in the browser → "ReferenceError: __name is not
+// defined". So the callback only gathers raw strings; parsing happens in Node.
 export async function extractBrandingSignals(
   page: Page,
 ): Promise<BrandingSignals> {
@@ -31,18 +44,81 @@ export async function extractBrandingSignals(
         .querySelector('meta[name="theme-color"]')
         ?.getAttribute("content") || null;
 
-    const counts: Record<string, number> = {};
-    const els = Array.from(document.querySelectorAll("body *")).slice(0, 800);
+    // Sample elements once for colours / radii / shadows / fonts.
+    const colorCounts: Record<string, number> = {};
+    const radiusCounts: Record<string, number> = {};
+    const shadowCounts: Record<string, number> = {};
+    const fontSet: Record<string, boolean> = {};
+    const els = Array.from(document.querySelectorAll("body *")).slice(0, 1000);
     for (const el of els) {
       const s = getComputedStyle(el);
       if (s.backgroundColor)
-        counts[s.backgroundColor] = (counts[s.backgroundColor] || 0) + 1;
-      if (s.color) counts[s.color] = (counts[s.color] || 0) + 1;
+        colorCounts[s.backgroundColor] =
+          (colorCounts[s.backgroundColor] || 0) + 1;
+      if (s.color) colorCounts[s.color] = (colorCounts[s.color] || 0) + 1;
+      if (s.borderRadius && s.borderRadius !== "0px")
+        radiusCounts[s.borderRadius] = (radiusCounts[s.borderRadius] || 0) + 1;
+      if (s.boxShadow && s.boxShadow !== "none")
+        shadowCounts[s.boxShadow] = (shadowCounts[s.boxShadow] || 0) + 1;
+      if (s.fontFamily)
+        fontSet[s.fontFamily.split(",")[0].replace(/['"]/g, "").trim()] = true;
     }
-    const top = Object.entries(counts)
+    const topColors = Object.entries(colorCounts)
       .sort((a, b) => b[1] - a[1])
       .map((e) => e[0])
       .slice(0, 16);
+    const topRadii = Object.entries(radiusCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map((e) => e[0])
+      .slice(0, 8);
+    const topShadows = Object.entries(shadowCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map((e) => e[0])
+      .slice(0, 4);
+
+    // CSS custom properties from :root / html (the real design tokens).
+    const cssVars: Record<string, string> = {};
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules: CSSRuleList | null = null;
+      try {
+        rules = sheet.cssRules;
+      } catch {
+        continue; // cross-origin sheet — not readable
+      }
+      if (!rules) continue;
+      for (const rule of Array.from(rules)) {
+        const r = rule as CSSStyleRule;
+        if (
+          r.selectorText === ":root" ||
+          r.selectorText === "html" ||
+          r.selectorText === ":host"
+        ) {
+          const st = r.style;
+          for (let i = 0; i < st.length; i++) {
+            const prop = st[i];
+            if (prop && prop.startsWith("--"))
+              cssVars[prop] = st.getPropertyValue(prop).trim();
+          }
+        }
+      }
+    }
+
+    // Type scale — computed font metrics for the key text elements.
+    const typeScale: Record<
+      string,
+      { size: string; weight: string; lineHeight: string; family: string }
+    > = {};
+    for (const sel of ["h1", "h2", "h3", "h4", "p", "button", "a"]) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const s = getComputedStyle(el);
+      typeScale[sel] = {
+        size: s.fontSize,
+        weight: s.fontWeight,
+        lineHeight: s.lineHeight,
+        family: s.fontFamily.split(",")[0].replace(/['"]/g, "").trim(),
+      };
+    }
 
     return {
       themeColor,
@@ -51,7 +127,12 @@ export async function extractBrandingSignals(
       accent: link ? getComputedStyle(link).color : null,
       bodyFont: bodyCS.fontFamily,
       headingFont: h1 ? getComputedStyle(h1).fontFamily : null,
-      topColors: top,
+      topColors,
+      topRadii,
+      topShadows,
+      cssVars,
+      typeScale,
+      fontCount: Object.keys(fontSet).length,
     };
   });
 
@@ -83,6 +164,17 @@ export async function extractBrandingSignals(
       serif: headingFont && headingFont !== bodyFont ? headingFont : null,
       mono: null,
     },
+    design: {
+      cssVariables: raw.cssVars,
+      typeScale: raw.typeScale,
+      radii: raw.topRadii,
+      shadows: raw.topShadows,
+      consistency: {
+        colors: topHex.length,
+        fonts: raw.fontCount,
+        radii: raw.topRadii.length,
+      },
+    },
   };
 }
 
@@ -94,7 +186,7 @@ function toHex(c: string | null): string | null {
   if (!m) return null;
   const parts = m[1].split(",").map((x) => parseFloat(x.trim()));
   const [r, g, b, a] = parts;
-  if (a === 0) return null; // fully transparent
+  if (a === 0) return null;
   const h = (n: number) =>
     Math.max(0, Math.min(255, Math.round(n)))
       .toString(16)
