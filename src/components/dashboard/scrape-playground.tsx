@@ -241,10 +241,17 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
     host;
 
   const images = result.data.images ?? [];
-  const [tab, setTab] = useState<"markdown" | "json" | "images">(
-    images.length > 0 && !result.data.markdown ? "images" : "markdown",
-  );
+  const html = result.data.html ?? "";
+  const summary = result.data.summary ?? "";
+  const hasBranding =
+    result.data.branding != null &&
+    Object.keys(result.data.branding as object).length > 0;
+  const screenshot = result.data.screenshot;
+  const [tab, setTab] = useState<
+    "markdown" | "json" | "images" | "html" | "summary" | "branding" | "screenshot"
+  >(images.length > 0 && !result.data.markdown ? "images" : "markdown");
   const markdown = result.data.markdown ?? "";
+  const brandingBody = JSON.stringify(result.data.branding ?? {}, null, 2);
   const jsonBody = JSON.stringify(
     {
       ...result.data,
@@ -370,14 +377,101 @@ function ScrapeResultCard({ result }: { result: ScrapeResult }) {
             Images ({images.length})
           </TabButton>
         )}
+        {html && (
+          <TabButton active={tab === "html"} onClick={() => setTab("html")}>
+            <span
+              className={cn(
+                "inline-flex h-4 items-center justify-center rounded px-1 font-mono text-[10px]",
+                tab === "html"
+                  ? "bg-muted text-foreground"
+                  : "bg-muted/50 text-muted-foreground",
+              )}
+            >
+              {"</>"}
+            </span>
+            HTML
+          </TabButton>
+        )}
+        {summary && (
+          <TabButton active={tab === "summary"} onClick={() => setTab("summary")}>
+            <FileText
+              className={cn(
+                "size-4",
+                tab === "summary" ? "text-foreground" : "text-muted-foreground",
+              )}
+            />
+            Summary
+          </TabButton>
+        )}
+        {hasBranding && (
+          <TabButton
+            active={tab === "branding"}
+            onClick={() => setTab("branding")}
+          >
+            <Palette
+              className={cn(
+                "size-4",
+                tab === "branding"
+                  ? "text-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+            Branding
+          </TabButton>
+        )}
+        {screenshot && (
+          <TabButton
+            active={tab === "screenshot"}
+            onClick={() => setTab("screenshot")}
+          >
+            <Images
+              className={cn(
+                "size-4",
+                tab === "screenshot"
+                  ? "text-foreground"
+                  : "text-muted-foreground",
+              )}
+            />
+            Screenshot
+          </TabButton>
+        )}
       </div>
 
       {tab === "images" ? (
         <ImageGallery images={images} />
+      ) : tab === "screenshot" && screenshot ? (
+        <div className="border-border/60 bg-muted/20 flex justify-center rounded-lg border p-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={screenshot}
+            alt="Page screenshot"
+            className="max-h-[640px] w-auto rounded"
+          />
+        </div>
       ) : (
         <ResultContent
-          body={tab === "markdown" ? markdown : jsonBody}
-          copyLabel={tab === "markdown" ? "Copy As Markdown" : "Copy JSON"}
+          body={
+            tab === "markdown"
+              ? markdown
+              : tab === "html"
+                ? html
+                : tab === "summary"
+                  ? summary
+                  : tab === "branding"
+                    ? brandingBody
+                    : jsonBody
+          }
+          copyLabel={
+            tab === "markdown"
+              ? "Copy As Markdown"
+              : tab === "html"
+                ? "Copy HTML"
+                : tab === "summary"
+                  ? "Copy Summary"
+                  : tab === "branding"
+                    ? "Copy Branding"
+                    : "Copy JSON"
+          }
         />
       )}
     </div>

@@ -274,6 +274,10 @@ function formatDbResult(
   job: { id: string; creditsUsed: number },
   result: NonNullable<Awaited<ReturnType<typeof db.scrapeResult.findFirst>>>,
 ): ScrapeServiceResult {
+  // AI formats (json/summary/branding) + changeTracking are stashed in the
+  // metadata JSON by the worker — lift them back to the top level so the
+  // queue path returns the same shape as the inline path.
+  const meta = (result.metadata ?? {}) as Record<string, unknown>;
   return {
     success: true,
     jobId: job.id,
@@ -286,10 +290,14 @@ function formatDbResult(
       links: result.links,
       images: result.images,
       screenshot: result.screenshotR2Key ?? undefined,
+      json: meta.json ?? undefined,
+      summary: meta.summary ?? undefined,
+      branding: meta.branding ?? undefined,
+      changeTracking: meta.changeTracking ?? undefined,
       pageStatus: result.pageStatus ?? undefined,
       durationMs: result.durationMs ?? undefined,
       metadata: {
-        ...(result.metadata as object),
+        ...meta,
         cached: result.fromCache,
       },
     },

@@ -92,6 +92,11 @@ export function startScrapeWorker() {
                 proxyUsed: result.proxyUsed,
                 actionResults: result.actionResults,
                 changeTracking: result.changeTracking,
+                // AI formats — persist so they survive the queue→DB→response
+                // path (formatDbResult lifts them back to the top level).
+                json: result.json,
+                summary: result.summary,
+                branding: result.branding,
               } as never,
               pageStatus: result.pageStatus,
               durationMs: result.durationMs,
