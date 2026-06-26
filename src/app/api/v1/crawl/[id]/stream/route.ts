@@ -17,7 +17,9 @@ import { NotFoundError, UnauthorizedError, toJsonError } from "@/lib/errors";
 //   WebSocket's bidirectional extra isn't earning its keep.
 
 export const dynamic = "force-dynamic"; // SSE must never be cached
-export const runtime = "nodejs"; // ioredis isn't edge-safe
+// NOTE: no `export const runtime` — it's incompatible with
+// next.config cacheComponents, and route handlers already run in the
+// Node.js runtime by default (so ioredis is fine here).
 
 export async function GET(
   req: Request,
