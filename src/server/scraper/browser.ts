@@ -39,10 +39,26 @@ class BrowserPool {
       blockAds?: boolean;
       proxyServer?: string;
       languages?: string[];
+      cookies?: Array<{
+        name: string;
+        value: string;
+        domain: string;
+        path: string;
+      }>;
     },
   ): Promise<T> {
     await this.init();
-    const ctx = await this.leaseContext();
+
+    // Authenticated (BYO-session) scrapes get a fresh ISOLATED context that's
+    // never pooled — so one user's session cookies can't leak into another's
+    // scrape sharing a recycled context.
+    const isolated = !!opts?.cookies?.length;
+    const ctx = isolated
+      ? await this.browser!.newContext()
+      : await this.leaseContext();
+    if (isolated && opts?.cookies) {
+      await ctx.addCookies(opts.cookies).catch(() => {});
+    }
 
     try {
       const uaInfo = pickUA();
@@ -76,7 +92,8 @@ class BrowserPool {
         await page.close().catch(() => {});
       }
     } finally {
-      this.releaseContext(ctx);
+      if (isolated) await ctx.close().catch(() => {});
+      else this.releaseContext(ctx);
     }
   }
 

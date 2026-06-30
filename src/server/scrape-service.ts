@@ -6,6 +6,8 @@ import { getRedisConnection } from "@/lib/queue";
 import { ApiError, InternalError } from "@/lib/errors";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { runScrapeWithStrategy, type ScrapeResult } from "@/server/scraper/strategy";
+import { parseVideoId } from "@/server/youtube/extract";
+import { getYouTubeSession } from "@/server/youtube/session";
 import { applyChangeTracking } from "@/server/scraper/change-tracking";
 import { STEALTH_CREDIT_BONUS } from "@/server/proxy/providers";
 import { signedScreenshotUrl } from "@/lib/storage";
@@ -327,7 +329,13 @@ async function runInline({
   });
 
   try {
-    const out = await runScrapeWithStrategy(input);
+    const ytCookies = parseVideoId(input.url)
+      ? await getYouTubeSession(userId)
+      : null;
+    const out = await runScrapeWithStrategy(
+      input,
+      ytCookies ? { cookies: ytCookies } : undefined,
+    );
 
     // Phase 7C — changeTracking snapshots are user-scoped so the
     // strategy layer can't know about them. Apply after the scrape

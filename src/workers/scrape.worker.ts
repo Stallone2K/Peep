@@ -3,6 +3,8 @@ import { Worker, Job } from "bullmq";
 import { db } from "@/lib/db";
 import { getRedisConnection } from "@/lib/queue";
 import { runScrapeWithStrategy } from "@/server/scraper/strategy";
+import { parseVideoId } from "@/server/youtube/extract";
+import { getYouTubeSession } from "@/server/youtube/session";
 import { applyChangeTracking } from "@/server/scraper/change-tracking";
 import { debitCredits } from "@/lib/credits";
 import { STEALTH_CREDIT_BONUS } from "@/server/proxy/providers";
@@ -30,7 +32,15 @@ export function startScrapeWorker() {
       });
 
       try {
-        const result = await runScrapeWithStrategy(input);
+        // BYO YouTube session — inject the user's cookies for YouTube URLs so
+        // the in-page innertube transcript/comments calls are authenticated.
+        const ytCookies = parseVideoId(input.url)
+          ? await getYouTubeSession(jobRow.userId)
+          : null;
+        const result = await runScrapeWithStrategy(
+          input,
+          ytCookies ? { cookies: ytCookies } : undefined,
+        );
 
         // Phase 7C — user-scoped changeTracking snapshots, applied
         // after strategy returns but before persisting ScrapeResult.

@@ -108,6 +108,14 @@ export function pickEngine(input: ScrapeRequestInput): EngineType {
 // optionally captures screenshot, returns unified result.
 export async function runScrapeWithStrategy(
   input: ScrapeRequestInput,
+  opts?: {
+    cookies?: Array<{
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+    }>;
+  },
 ): Promise<ScrapeResult> {
   const start = Date.now();
 
@@ -183,6 +191,7 @@ export async function runScrapeWithStrategy(
       hostname,
       wantedTypes,
       start,
+      cookies: opts?.cookies,
     });
   } catch (err) {
     // Escalate once to the stealth tier if the block detector
@@ -194,6 +203,7 @@ export async function runScrapeWithStrategy(
         hostname,
         wantedTypes,
         start,
+        cookies: opts?.cookies,
       });
     }
     throw err;
@@ -210,12 +220,19 @@ async function runPlaywright({
   hostname,
   wantedTypes,
   start,
+  cookies,
 }: {
   input: ScrapeRequestInput;
   engine: EngineType;
   hostname: string;
   wantedTypes: Set<string>;
   start: number;
+  cookies?: Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+  }>;
 }): Promise<ScrapeResult> {
   const proxyTier: ProxyTier =
     engine === "proxy-playwright" ? "stealth" : "basic";
@@ -435,6 +452,7 @@ async function runPlaywright({
       blockAds: input.blockAds,
       proxyServer: proxyConfig?.server,
       languages: input.languages,
+      cookies,
     },
   );
 }
