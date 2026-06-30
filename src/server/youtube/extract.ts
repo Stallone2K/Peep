@@ -191,7 +191,9 @@ export async function fetchYouTubeComments(
   let resp = await innertubeNext({ videoId });
   let token = findCommentsToken(resp);
   let pages = 0;
-  while (token && out.length < max && pages < 60) {
+  // ~20 comments/page → allow enough pages to reach `max` (+ headroom).
+  const maxPages = Math.ceil(max / 15) + 10;
+  while (token && out.length < max && pages < maxPages) {
     resp = await innertubeNext({ continuation: token });
     const { items, next } = parseCommentsPage(resp);
     for (const c of items) {

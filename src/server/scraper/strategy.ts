@@ -25,8 +25,10 @@ import {
   type YouTubeData,
 } from "@/server/youtube/extract";
 
-// Cap auto-harvested comments per video (each innertube page ≈ 20 comments).
-const YT_MAX_COMMENTS = 200;
+// Cap auto-harvested top-level comments per video (each innertube page ≈ 20).
+// 2000 covers the vast majority of videos in full; huge viral videos are
+// bounded here for runtime. (Replies inside threads are not expanded.)
+const YT_MAX_COMMENTS = 2000;
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
