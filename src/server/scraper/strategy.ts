@@ -385,12 +385,12 @@ async function runPlaywright({
                 const cfg = (window as any).ytcfg;
                 const key =
                   cfg?.data_?.INNERTUBE_API_KEY ||
-                  cfg?.get?.("INNERTUBE_API_KEY");
+                  cfg?.get?.("INNERTUBE_API_KEY") ||
+                  "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
                 const cver =
                   cfg?.data_?.INNERTUBE_CLIENT_VERSION ||
                   cfg?.get?.("INNERTUBE_CLIENT_VERSION") ||
                   "2.20240101";
-                if (!key) return null;
                 const pr = await fetch("/youtubei/v1/player?key=" + key, {
                   method: "POST",
                   headers: { "content-type": "application/json" },
@@ -438,19 +438,22 @@ async function runPlaywright({
           // Comments via innertube `next` (authenticated by BYO-session if
           // connected). Thin in-page fetch; parsing happens in Node.
           /* eslint-disable @typescript-eslint/no-explicit-any */
+          const PUB_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
           const cfg = await page
-            .evaluate(() => {
+            .evaluate((fallback) => {
               const c = (window as any).ytcfg;
               const key =
-                c?.data_?.INNERTUBE_API_KEY || c?.get?.("INNERTUBE_API_KEY");
+                c?.data_?.INNERTUBE_API_KEY ||
+                c?.get?.("INNERTUBE_API_KEY") ||
+                fallback;
               const ver =
                 c?.data_?.INNERTUBE_CLIENT_VERSION ||
                 c?.get?.("INNERTUBE_CLIENT_VERSION") ||
                 "2.20240101";
-              return key ? { key, ver } : null;
-            })
-            .catch(() => null);
-          if (cfg) {
+              return { key, ver };
+            }, PUB_KEY)
+            .catch(() => ({ key: PUB_KEY, ver: "2.20240101" }));
+          {
             const innertubeNext = (body: Record<string, unknown>) =>
               page.evaluate(
                 (a: any) =>
