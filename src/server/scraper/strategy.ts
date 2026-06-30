@@ -21,8 +21,12 @@ import {
   parseVideoId,
   extractYouTubeFromHtml,
   renderYouTubeMarkdown,
+  fetchYouTubeComments,
   type YouTubeData,
 } from "@/server/youtube/extract";
+
+// Cap auto-harvested comments per video (each innertube page ≈ 20 comments).
+const YT_MAX_COMMENTS = 200;
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
@@ -430,6 +434,49 @@ async function runPlaywright({
             yt.transcript = transcript as typeof yt.transcript;
             yt.transcriptAvailable = transcript.length > 0;
           }
+
+          // Comments via innertube `next` (authenticated by BYO-session if
+          // connected). Thin in-page fetch; parsing happens in Node.
+          /* eslint-disable @typescript-eslint/no-explicit-any */
+          const cfg = await page
+            .evaluate(() => {
+              const c = (window as any).ytcfg;
+              const key =
+                c?.data_?.INNERTUBE_API_KEY || c?.get?.("INNERTUBE_API_KEY");
+              const ver =
+                c?.data_?.INNERTUBE_CLIENT_VERSION ||
+                c?.get?.("INNERTUBE_CLIENT_VERSION") ||
+                "2.20240101";
+              return key ? { key, ver } : null;
+            })
+            .catch(() => null);
+          if (cfg) {
+            const innertubeNext = (body: Record<string, unknown>) =>
+              page.evaluate(
+                (a: any) =>
+                  fetch("/youtubei/v1/next?key=" + a.key, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                      context: {
+                        client: { clientName: "WEB", clientVersion: a.ver },
+                      },
+                      ...a.body,
+                    }),
+                  })
+                    .then((r) => (r.ok ? r.json() : null))
+                    .catch(() => null),
+                { key: cfg.key, ver: cfg.ver, body },
+              );
+            const comments = await fetchYouTubeComments(
+              YT_MAX_COMMENTS,
+              innertubeNext,
+              videoId,
+            ).catch(() => []);
+            yt.comments = comments;
+            yt.commentCount = comments.length;
+          }
+          /* eslint-enable @typescript-eslint/no-explicit-any */
 
           withAI.youtube = yt;
           withAI.images = [
