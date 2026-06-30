@@ -224,11 +224,18 @@ async function runPlaywright({
   const pool = BrowserPool.getInstance();
   return pool.withPage(
     async (page: Page) => {
-      // Navigate
+      // Navigate. `domcontentloaded` always fires (the page's data JSON is
+      // present by then); then give client-rendered content a brief settle
+      // window — but DON'T wait for full "networkidle", which media/SPA sites
+      // (YouTube, dashboards, anything with websockets/polling) never reach
+      // and which would otherwise time the whole scrape out.
       await page.goto(input.url, {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
         timeout: input.timeout,
       });
+      await page
+        .waitForLoadState("networkidle", { timeout: 5000 })
+        .catch(() => {});
 
       // WaitFor (selector or ms)
       if (input.waitFor > 0) {
