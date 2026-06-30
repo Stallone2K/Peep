@@ -349,9 +349,21 @@ async function runPlaywright({
       // and the transcript+metadata become the Markdown.
       const videoId = parseVideoId(input.url) ?? parseVideoId(finalUrl);
       if (videoId) {
-        const yt = await extractYouTubeFromHtml(videoId, renderedHtml).catch(
-          () => null,
-        );
+        // Fetch the transcript through the page's trusted session (YouTube
+        // blocks caption fetches from datacenter IPs).
+        const ytFetch = (u: string) =>
+          page.evaluate(
+            (url) =>
+              fetch(url)
+                .then((r) => (r.ok ? r.text() : ""))
+                .catch(() => ""),
+            u,
+          );
+        const yt = await extractYouTubeFromHtml(
+          videoId,
+          renderedHtml,
+          ytFetch,
+        ).catch(() => null);
         if (yt) {
           withAI.youtube = yt;
           withAI.images = [

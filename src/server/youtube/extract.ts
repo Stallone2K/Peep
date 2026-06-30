@@ -91,6 +91,10 @@ function extractJsonVar(html: string, marker: string): unknown | null {
 export async function extractYouTubeFromHtml(
   videoId: string,
   html: string,
+  // Optional in-browser fetcher — YouTube blocks caption fetches from
+  // datacenter IPs, so fetching the transcript through the page's trusted
+  // session is far more reliable than a Node fetch.
+  fetchText?: (url: string) => Promise<string>,
 ): Promise<YouTubeData> {
   const player = extractJsonVar(html, "ytInitialPlayerResponse") as
     | Record<string, never>
@@ -128,7 +132,9 @@ export async function extractYouTubeFromHtml(
     tracks.find((t) => t.languageCode === "en" && t.kind !== "asr") ??
     tracks.find((t) => t.languageCode === "en") ??
     tracks[0];
-  const transcript = track ? await fetchTranscript(track.baseUrl) : [];
+  const transcript = track
+    ? await fetchTranscript(track.baseUrl, fetchText)
+    : [];
 
   return {
     videoId,
@@ -203,25 +209,29 @@ function fmtDuration(s: number): string {
 // Fetch + parse a caption track (json3 format → {start, text}).
 async function fetchTranscript(
   baseUrl: string,
+  fetchText?: (url: string) => Promise<string>,
 ): Promise<TranscriptSegment[]> {
   const url = baseUrl.includes("fmt=") ? baseUrl : `${baseUrl}&fmt=json3`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "accept-language": "en-US,en;q=0.9",
-      },
-    });
-    if (!res.ok) return [];
-    const data = (await res.json()) as {
-      events?: Array<{
-        tStartMs?: number;
-        segs?: Array<{ utf8?: string }>;
-      }>;
+    let body: string;
+    if (fetchText) {
+      body = await fetchText(url); // in-browser (trusted session)
+    } else {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12_000);
+      try {
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: { "accept-language": "en-US,en;q=0.9" },
+        });
+        body = res.ok ? await res.text() : "";
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    if (!body) return [];
+    const data = JSON.parse(body) as {
+      events?: Array<{ tStartMs?: number; segs?: Array<{ utf8?: string }> }>;
     };
     return (data.events ?? [])
       .filter((e) => e.segs)
@@ -235,7 +245,5 @@ async function fetchTranscript(
       .filter((s) => s.text);
   } catch {
     return [];
-  } finally {
-    clearTimeout(timer);
   }
 }
