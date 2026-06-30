@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { BookOpen, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -52,13 +53,24 @@ export function ApiKeysManager({
             Secret — Treat Them Like Passwords.
           </p>
         </div>
-        <CreateKeyDialog
-          onCreated={(created) => {
-            upsertKey(stripPlaintext(created));
-            setPlaintext(created.plaintext);
-            router.refresh();
-          }}
-        />
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/docs"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "text-muted-foreground hover:text-foreground gap-1.5",
+            )}
+          >
+            <BookOpen className="size-4" /> API Docs
+          </Link>
+          <CreateKeyDialog
+            onCreated={(created) => {
+              upsertKey(stripPlaintext(created));
+              setPlaintext(created.plaintext);
+              router.refresh();
+            }}
+          />
+        </div>
       </div>
 
       <KeysTable

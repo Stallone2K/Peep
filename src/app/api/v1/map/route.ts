@@ -1,7 +1,7 @@
 import { requireApiKey } from "@/lib/api-auth";
 import { mapRequestSchema } from "@/lib/validators/map";
 import { ValidationError } from "@/lib/errors";
-import { errorResponse, preflight } from "@/lib/route-helpers";
+import { errorResponse, preflight, successJson } from "@/lib/route-helpers";
 import { performMapForUser } from "@/server/map-service";
 
 // POST /api/v1/map — synchronous URL discovery.
@@ -20,7 +20,10 @@ export async function POST(req: Request) {
     const input = mapRequestSchema.parse(rawBody);
 
     const { links } = await performMapForUser({ userId, input });
-    return Response.json({ success: true, links });
+    return await successJson(
+      { success: true, links },
+      { userId, creditsUsed: 1 },
+    );
   } catch (err) {
     return errorResponse(err);
   }

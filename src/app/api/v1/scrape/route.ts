@@ -11,6 +11,7 @@ import {
   canOverrideRobots,
   errorResponse,
   preflight,
+  successJson,
 } from "@/lib/route-helpers";
 
 // POST /api/v1/scrape — Bearer-authed public endpoint.
@@ -70,7 +71,10 @@ export async function POST(req: Request) {
       });
     }
 
-    return Response.json(responseBody);
+    return await successJson(responseBody, {
+      userId,
+      creditsUsed: result.creditsUsed,
+    });
   } catch (err) {
     return errorResponse(err);
   }

@@ -7,7 +7,7 @@ import {
   storeIdempotent,
 } from "@/lib/idempotency";
 import { startExtractJob } from "@/server/extract-service";
-import { errorResponse, preflight } from "@/lib/route-helpers";
+import { errorResponse, preflight, successJson } from "@/lib/route-helpers";
 
 // POST /api/v1/extract
 // Bearer-authed. Enqueues an extract job (scrape-then-extract pipeline).
@@ -63,7 +63,10 @@ export async function POST(req: Request) {
       });
     }
 
-    return Response.json(responseBody);
+    return await successJson(responseBody, {
+      userId,
+      creditsUsed: creditsReserved,
+    });
   } catch (err) {
     return errorResponse(err);
   }

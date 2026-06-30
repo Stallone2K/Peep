@@ -2,7 +2,7 @@ import { requireApiKey } from "@/lib/api-auth";
 import { ValidationError } from "@/lib/errors";
 import { agentRequestSchema } from "@/lib/validators/agent";
 import { startAgentJob } from "@/server/agent-service";
-import { errorResponse, preflight } from "@/lib/route-helpers";
+import { errorResponse, preflight, successJson } from "@/lib/route-helpers";
 
 // POST /api/v1/agent — start a lead/data harvesting run. Async; poll
 // GET /api/v1/agent/:id for status + the record table.
@@ -22,12 +22,15 @@ export async function POST(req: Request) {
       input,
     });
 
-    return Response.json({
-      success: true,
-      jobId,
-      url: `/api/v1/agent/${jobId}`,
-      creditsReserved,
-    });
+    return await successJson(
+      {
+        success: true,
+        jobId,
+        url: `/api/v1/agent/${jobId}`,
+        creditsReserved,
+      },
+      { userId, creditsUsed: creditsReserved },
+    );
   } catch (err) {
     return errorResponse(err);
   }

@@ -2,7 +2,7 @@ import { requireApiKey } from "@/lib/api-auth";
 import { ValidationError } from "@/lib/errors";
 import { searchRequestSchema } from "@/lib/validators/search";
 import { performSearchForUser } from "@/server/search-service";
-import { errorResponse, preflight } from "@/lib/route-helpers";
+import { errorResponse, preflight, successJson } from "@/lib/route-helpers";
 
 // POST /api/v1/search
 // Provider-neutral web search. Default backend is Brave (or keyless
@@ -24,12 +24,15 @@ export async function POST(req: Request) {
       input,
     });
 
-    return Response.json({
-      success: true,
-      data: results,
-      cached,
-      creditsUsed,
-    });
+    return await successJson(
+      {
+        success: true,
+        data: results,
+        cached,
+        creditsUsed,
+      },
+      { userId, creditsUsed },
+    );
   } catch (err) {
     return errorResponse(err);
   }

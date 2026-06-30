@@ -15,6 +15,7 @@ import {
   canOverrideRobots,
   errorResponse,
   preflight,
+  successJson,
 } from "@/lib/route-helpers";
 
 // POST /api/v1/crawl
@@ -146,7 +147,9 @@ export async function POST(req: Request) {
       });
     }
 
-    return Response.json(responseBody);
+    // Crawl creation is free — each child page debits 1 credit as the
+    // crawl runs — so surface the balance without a creditsUsed header.
+    return await successJson(responseBody, { userId });
   } catch (err) {
     return errorResponse(err);
   }

@@ -11,7 +11,7 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { ScrapeJobData } from "@/workers/scrape.worker";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
-import { errorResponse, preflight } from "@/lib/route-helpers";
+import { errorResponse, preflight, successJson } from "@/lib/route-helpers";
 
 // POST /api/v1/batch/scrape
 // Parallel scrape of N URLs. Creates a BatchJob + N ScrapeJob
@@ -157,7 +157,9 @@ export async function POST(req: Request) {
       });
     }
 
-    return Response.json(responseBody);
+    // Batch creation is free — children debit 1 credit each as they
+    // run — so no creditsUsed header here; just surface the balance.
+    return await successJson(responseBody, { userId });
   } catch (err) {
     return errorResponse(err);
   }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { PlanTier } from "@prisma/client";
 
 import { enforceUserRateLimit } from "@/lib/ratelimit";
+import { getCreditBalance } from "@/lib/credits";
 import { ValidationError, toJsonError } from "@/lib/errors";
 
 // Shared response + pre-flight helpers used by /api/v1/* mutating
@@ -26,6 +27,26 @@ export function errorResponse(err: unknown): Response {
     status: mapped.status,
     ...(mapped.headers ? { headers: mapped.headers } : {}),
   });
+}
+
+// Build a JSON success Response carrying the Peep Card credit headers.
+// `X-Peep-Credits-Remaining` is read fresh from the balance (so it
+// reflects any debit just performed); `X-Peep-Credits-Used` is set
+// when the caller knows the spend (sync debits) or reservation (async
+// jobs). One indexed lookup — cheap enough for every v1 response, and
+// it lets SDKs/CLIs surface remaining balance without a second call.
+export async function successJson(
+  body: Record<string, unknown>,
+  opts: { userId: string; creditsUsed?: number; status?: number },
+): Promise<Response> {
+  const remaining = await getCreditBalance(opts.userId);
+  const headers: Record<string, string> = {
+    "X-Peep-Credits-Remaining": String(remaining),
+  };
+  if (opts.creditsUsed !== undefined) {
+    headers["X-Peep-Credits-Used"] = String(opts.creditsUsed);
+  }
+  return Response.json(body, { status: opts.status ?? 200, headers });
 }
 
 // FREE / HOBBY plans can't bypass robots.txt — the override is a
