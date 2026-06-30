@@ -86,6 +86,7 @@ export function startScrapeWorker() {
                 json: result.json,
                 summary: result.summary,
                 branding: result.branding,
+                youtube: result.youtube,
               } as never,
               pageStatus: result.pageStatus,
               durationMs: result.durationMs,

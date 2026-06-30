@@ -17,6 +17,12 @@ import {
 import { BrowserPool } from "@/server/scraper/browser";
 import { captureScreenshot } from "@/server/scraper/screenshot";
 import { extractBrandingSignals } from "@/server/scraper/branding-extract";
+import {
+  parseVideoId,
+  extractYouTubeFromHtml,
+  renderYouTubeMarkdown,
+  type YouTubeData,
+} from "@/server/youtube/extract";
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
@@ -59,6 +65,7 @@ export type ScrapeResult = {
   branding?: Record<string, unknown>;
   changeTracking?: import("@/server/scraper/change-tracking").ChangeTrackingResult;
   metadata: Record<string, unknown>;
+  youtube?: YouTubeData;
   extracted?: unknown;
   pageStatus: number;
   durationMs: number;
@@ -80,6 +87,10 @@ export function pickEngine(input: ScrapeRequestInput): EngineType {
   // (inferring from HTML text misses Tailwind / external-CSS sites).
   const wantsBranding = input.formats.some((f) => f.type === "branding");
   if (wantsBranding) return "playwright";
+
+  // YouTube watch URLs render the data JSON best via the browser (avoids the
+  // consent/bot interstitial on datacenter IPs).
+  if (parseVideoId(input.url)) return "playwright";
 
   // If fastMode is on, always HTTP
   if (input.fastMode) return "http";
@@ -324,6 +335,24 @@ async function runPlaywright({
           fonts: brandingSignals.fonts,
           design: brandingSignals.design,
         };
+      }
+
+      // YouTube enrichment — integrated into the EXISTING fields (no new
+      // section): the full data object surfaces in JSON, thumbnails in Images,
+      // and the transcript+metadata become the Markdown.
+      const videoId = parseVideoId(input.url) ?? parseVideoId(finalUrl);
+      if (videoId) {
+        const yt = await extractYouTubeFromHtml(videoId, renderedHtml).catch(
+          () => null,
+        );
+        if (yt) {
+          withAI.youtube = yt;
+          withAI.images = [
+            ...yt.thumbnails,
+            ...(withAI.images ?? []),
+          ].filter((v, i, a) => a.indexOf(v) === i);
+          withAI.markdown = renderYouTubeMarkdown(yt);
+        }
       }
 
       return {

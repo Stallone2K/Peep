@@ -294,6 +294,7 @@ function formatDbResult(
       json: meta.json ?? undefined,
       summary: meta.summary ?? undefined,
       branding: meta.branding ?? undefined,
+      youtube: meta.youtube ?? undefined,
       changeTracking: meta.changeTracking ?? undefined,
       pageStatus: result.pageStatus ?? undefined,
       durationMs: result.durationMs ?? undefined,
