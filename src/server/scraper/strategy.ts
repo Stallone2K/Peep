@@ -349,22 +349,71 @@ async function runPlaywright({
       // and the transcript+metadata become the Markdown.
       const videoId = parseVideoId(input.url) ?? parseVideoId(finalUrl);
       if (videoId) {
-        // Fetch the transcript through the page's trusted session (YouTube
-        // blocks caption fetches from datacenter IPs).
-        const ytFetch = (u: string) =>
-          page.evaluate(
-            (url) =>
-              fetch(url)
-                .then((r) => (r.ok ? r.text() : ""))
-                .catch(() => ""),
-            u,
-          );
-        const yt = await extractYouTubeFromHtml(
-          videoId,
-          renderedHtml,
-          ytFetch,
-        ).catch(() => null);
+        const yt = await extractYouTubeFromHtml(videoId, renderedHtml).catch(
+          () => null,
+        );
         if (yt) {
+          // Transcript via YouTube's own innertube player API, run IN the page
+          // (trusted session). The initial HTML player response omits caption
+          // tracks, and datacenter-IP fetches are blocked — this uses the
+          // page's session like the real YouTube player does.
+          /* eslint-disable @typescript-eslint/no-explicit-any */
+          const transcript = await page
+            .evaluate(async (vid) => {
+              try {
+                const cfg = (window as any).ytcfg;
+                const key =
+                  cfg?.data_?.INNERTUBE_API_KEY ||
+                  cfg?.get?.("INNERTUBE_API_KEY");
+                const cver =
+                  cfg?.data_?.INNERTUBE_CLIENT_VERSION ||
+                  cfg?.get?.("INNERTUBE_CLIENT_VERSION") ||
+                  "2.20240101";
+                if (!key) return null;
+                const pr = await fetch("/youtubei/v1/player?key=" + key, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    videoId: vid,
+                    context: {
+                      client: { clientName: "WEB", clientVersion: cver },
+                    },
+                  }),
+                }).then((r) => r.json());
+                const tracks =
+                  pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+                if (!tracks || !tracks.length) return null;
+                const t =
+                  tracks.find(
+                    (x: any) => x.languageCode === "en" && x.kind !== "asr",
+                  ) ||
+                  tracks.find((x: any) => x.languageCode === "en") ||
+                  tracks[0];
+                const tt = await fetch(t.baseUrl + "&fmt=json3").then((r) =>
+                  r.ok ? r.json() : null,
+                );
+                if (!tt?.events) return null;
+                return tt.events
+                  .filter((e: any) => e.segs)
+                  .map((e: any) => ({
+                    start: (e.tStartMs || 0) / 1000,
+                    text: e.segs
+                      .map((s: any) => s.utf8 || "")
+                      .join("")
+                      .trim(),
+                  }))
+                  .filter((s: any) => s.text);
+              } catch {
+                return null;
+              }
+            }, videoId)
+            .catch(() => null);
+          /* eslint-enable @typescript-eslint/no-explicit-any */
+          if (Array.isArray(transcript)) {
+            yt.transcript = transcript as typeof yt.transcript;
+            yt.transcriptAvailable = transcript.length > 0;
+          }
+
           withAI.youtube = yt;
           withAI.images = [
             ...yt.thumbnails,
