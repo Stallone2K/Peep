@@ -6,13 +6,13 @@ import { Bot, Check, Copy, FileText, Terminal } from "lucide-react";
 import { WidgetCard, WidgetHeader } from "@/components/dashboard/widget-card";
 import { cn } from "@/lib/utils";
 
-const SKILLS_CLI = `npx -y @peep/cli@latest init --all --browser`;
+const SKILLS_CLI = `npx -y @shownomore/peep-cli@latest init --all --browser`;
 
 const MCP_CONFIG = `{
   "mcpServers": {
     "peep-mcp": {
       "command": "npx",
-      "args": ["-y", "@peep/mcp"],
+      "args": ["-y", "@shownomore/peep-mcp"],
       "env": {
         "PEEP_API_KEY": "$PEEP_API_KEY"
       }

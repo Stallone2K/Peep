@@ -1,4 +1,4 @@
-# @peep/mcp
+# @shownomore/peep-mcp
 
 Model Context Protocol server for [Peep](https://peep.shownomore.com) — scrape,
 crawl, search, and extract the web from Claude, Cursor, VS Code, and any
@@ -17,7 +17,7 @@ then add Peep to your MCP client.
   "mcpServers": {
     "peep": {
       "command": "npx",
-      "args": ["-y", "@peep/mcp"],
+      "args": ["-y", "@shownomore/peep-mcp"],
       "env": { "PEEP_API_KEY": "peep_live_xxx" }
     }
   }
@@ -27,7 +27,7 @@ then add Peep to your MCP client.
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add peep -e PEEP_API_KEY=peep_live_xxx -- npx -y @peep/mcp
+claude mcp add peep -e PEEP_API_KEY=peep_live_xxx -- npx -y @shownomore/peep-mcp
 ```
 
 ## Environment

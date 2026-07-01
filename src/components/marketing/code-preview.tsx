@@ -26,8 +26,8 @@ peep.scrape("peep.dev")`,
   {
     label: "Node.js",
     icon: Code2,
-    code: `// npm i @peep/sdk
-import { Peep } from "@peep/sdk";
+    code: `// npm i @shownomore/peep-sdk
+import { Peep } from "@shownomore/peep-sdk";
 
 const peep = new Peep({ apiKey: "peep_live_..." });
 
@@ -45,7 +45,7 @@ await peep.scrape("peep.dev");`,
   {
     label: "CLI",
     icon: Terminal,
-    code: `# npm i -g @peep/cli
+    code: `# npm i -g @shownomore/peep-cli
 peep scrape peep.dev --format markdown`,
   },
 ];

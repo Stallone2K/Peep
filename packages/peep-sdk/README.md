@@ -1,4 +1,4 @@
-# @peep/sdk
+# @shownomore/peep-sdk
 
 Official Node.js SDK for the [Peep](https://peep.shownomore.com) web scraping
 API. Scrape, crawl, map, search, extract, and run autonomous agents — all from a
@@ -9,16 +9,16 @@ typed client. Every call draws from your shared **Peep Card** credit balance.
 Use any package manager — they all resolve from the npm registry:
 
 ```bash
-npm install @peep/sdk
-yarn add @peep/sdk
-pnpm add @peep/sdk
-bun add @peep/sdk
+npm install @shownomore/peep-sdk
+yarn add @shownomore/peep-sdk
+pnpm add @shownomore/peep-sdk
+bun add @shownomore/peep-sdk
 ```
 
 ## Usage
 
 ```js
-import { Peep } from "@peep/sdk";
+import { Peep } from "@shownomore/peep-sdk";
 
 const peep = new Peep({ apiKey: process.env.PEEP_API_KEY });
 

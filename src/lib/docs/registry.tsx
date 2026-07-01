@@ -687,10 +687,10 @@ export const DOCS: Record<string, DocEntry> = {
         </P>
         <Snippet
           samples={[
-            { label: "npm", language: "bash", code: "npm install @peep/sdk" },
-            { label: "yarn", language: "bash", code: "yarn add @peep/sdk" },
-            { label: "pnpm", language: "bash", code: "pnpm add @peep/sdk" },
-            { label: "bun", language: "bash", code: "bun add @peep/sdk" },
+            { label: "npm", language: "bash", code: "npm install @shownomore/peep-sdk" },
+            { label: "yarn", language: "bash", code: "yarn add @shownomore/peep-sdk" },
+            { label: "pnpm", language: "bash", code: "pnpm add @shownomore/peep-sdk" },
+            { label: "bun", language: "bash", code: "bun add @shownomore/peep-sdk" },
           ]}
         />
         <Snippet
@@ -698,7 +698,7 @@ export const DOCS: Record<string, DocEntry> = {
             {
               label: "Usage",
               language: "javascript",
-              code: `import { Peep } from "@peep/sdk";
+              code: `import { Peep } from "@shownomore/peep-sdk";
 
 const peep = new Peep({ apiKey: process.env.PEEP_API_KEY });
 
@@ -778,7 +778,7 @@ crawl = peep.crawl_and_wait("https://example.com", limit=50)`,
   "mcpServers": {
     "peep": {
       "command": "npx",
-      "args": ["-y", "@peep/mcp"],
+      "args": ["-y", "@shownomore/peep-mcp"],
       "env": { "PEEP_API_KEY": "peep_live_xxx" }
     }
   }
@@ -787,7 +787,7 @@ crawl = peep.crawl_and_wait("https://example.com", limit=50)`,
             {
               label: "CLI",
               language: "bash",
-              code: `claude mcp add peep -e PEEP_API_KEY=peep_live_xxx -- npx -y @peep/mcp`,
+              code: `claude mcp add peep -e PEEP_API_KEY=peep_live_xxx -- npx -y @shownomore/peep-mcp`,
             },
           ]}
         />

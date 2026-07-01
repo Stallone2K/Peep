@@ -166,7 +166,7 @@ function PowerYourAgent() {
             </>
           }
           description="Install The JavaScript Or Python SDK And Start Calling Scrape, Crawl, Or Extract From Your Agent Loop."
-          code={`npm i @peep/sdk
+          code={`npm i @shownomore/peep-sdk
 # or
 pip install peep`}
         />
@@ -184,7 +184,7 @@ pip install peep`}
   "mcpServers": {
     "peep-mcp": {
       "command": "npx",
-      "args": ["-y", "@peep/mcp"],
+      "args": ["-y", "@shownomore/peep-mcp"],
       "env": {
         "PEEP_API_KEY": "peep_live_..."
       }

@@ -1,18 +1,32 @@
 {
-  "name": "@peep/sdk",
+  "name": "@shownomore/peep-sdk",
   "version": "0.1.0",
   "description": "Official Node.js SDK for the Peep web scraping API — scrape, crawl, map, search, extract, and agent.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "homepage": "https://peep.shownomore.com/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Stallone2K/peep.git",
+    "directory": "packages/peep-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/Stallone2K/peep/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "peep",

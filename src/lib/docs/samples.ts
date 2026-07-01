@@ -66,10 +66,10 @@ export function apiSamples(opts: {
     { label: "Python", language: "python", code: py },
   ];
 
-  // ── MCP (Claude / Cursor with @peep/mcp) ──
+  // ── MCP (Claude / Cursor with @shownomore/peep-mcp) ──
   if (mcpTool) {
     const args = mcpArgs ?? body ?? {};
-    const mcp = `// With @peep/mcp configured in Claude or Cursor,\n// ask in natural language or call the tool directly:\n\n${mcpTool}(${pretty(args) ?? "{}"})`;
+    const mcp = `// With @shownomore/peep-mcp configured in Claude or Cursor,\n// ask in natural language or call the tool directly:\n\n${mcpTool}(${pretty(args) ?? "{}"})`;
     samples.push({ label: "MCP", language: "javascript", code: mcp });
   }
 
