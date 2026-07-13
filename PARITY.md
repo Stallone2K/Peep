@@ -1,104 +1,103 @@
-# Peep ⟷ Firecrawl — Feature Parity & "Beat It" Tracker
+# Peep ↔ Firecrawl Parity (v2 baseline)
 
-Living checklist for matching Firecrawl feature-for-feature and then surpassing it.
-Update the status columns as work lands. Companion to the Rust migration plan
-(`.claude/plans/hashed-purring-cascade.md`).
+Audited 2026-07-01 against **Firecrawl v2** (api.firecrawl.dev/v2, ~v2.11). Firecrawl has
+moved well past the v1 surface: new endpoints `/agent`, `/interact`, `/parse`, `/monitor`;
+new scrape formats; keyless access; PII redaction. `/extract` + `/llmstxt` are now legacy.
 
-**Legend:** ✅ done · 🟡 partial · ❌ missing · ⭐ Peep-original (no Firecrawl equivalent)
+Legend: ✅ full · 🟡 partial / degraded · ❌ missing or in-schema-only (accepted, does nothing).
 
 ---
 
-## 1. Core Endpoints
+## 🔴 Integrity bugs — FIX FIRST (we accept/charge but don't deliver)
+These are worse than missing features: the API takes the request (and sometimes **credits**)
+and silently does nothing. They erode trust and must be fixed or removed.
 
-| Endpoint | Firecrawl | Peep | Notes |
-|---|---|---|---|
-| `POST /scrape` (+ `GET /scrape/:id`) | ✅ | ✅ | At parity |
-| `POST /crawl` (+ status, `/errors`, SSE `/stream`, cancel) | ✅ | ✅ | Peep also has SSE streaming |
-| `POST /map` | ✅ | ✅ | At parity |
-| `POST /search` (+ scrape enrichment) | ✅ | ✅ | At parity |
-| `POST /batch/scrape` (+ append) | ✅ | ✅ | At parity |
-| `POST /extract` (async, schema/prompt) | ✅ | ✅ | At parity |
-| `POST /agent` (FIRE-1 autonomous) | ✅ | ❌ | Dashboard stub only |
-| `POST /interact` (stateful browser session) | ✅ | ❌ | Dashboard stub only |
-| `POST /parse` (PDF/docx → markdown, "Fire-PDF") | ✅ | ❌ | — |
-| Browser Sandbox (managed isolated browser for agents) | ✅ | ❌ | — |
-| `POST /collect` (Asset Collector) | ❌ | ⭐✅ | **Peep-original — shipped** |
-
-## 2. Scrape Formats
-
-| Format | Firecrawl | Peep | Notes |
-|---|---|---|---|
-| markdown, html, rawHtml, links, screenshot | ✅ | ✅ | |
-| json (schema + prompt extraction) | ✅ | ✅ | Gemini |
-| summary | ✅ | ✅ | |
-| images | ✅ | ✅ | |
-| **attributes** (CSS selector → attribute) | ✅ | ✅ | **Shipped this session** |
-| changeTracking (git-diff + json, tags) | ✅ | ✅ | |
-| branding / brand profile | ✅ | ✅ | |
-| **highlights** (verbatim matching sentences/code/tables) | ✅ | ❌ | Peep has `query` (similar, not identical) |
-| audio (extract audio from YouTube) | ✅ | 🟡 | In schema, not implemented |
-
-## 3. Scrape / Crawl / Map / Search Options — **at parity**
-include/exclude tags & paths, onlyMainContent, timeout, waitFor, mobile, proxy modes
-(basic/stealth/enhanced/auto), country/languages, actions engine (9 types), maxAge/minAge
-cache, depth, domain scope, sitemap modes, NL-prompt→config, dedup, robots handling,
-webhooks (HMAC-signed). No material gaps here.
-
-## 4. Distribution Layer — **Peep's biggest gap**
-
-| | Firecrawl | Peep |
+| Bug | Impact | Evidence |
 |---|---|---|
-| Python SDK | ✅ | ❌ |
-| Node/TS SDK | ✅ | ❌ |
-| Go / Ruby / PHP / .NET SDKs | ✅ | ❌ |
-| **Rust SDK** (Firecrawl's official one) | ✅ | ❌ (natural fit — build in `peep-rs`) |
-| **MCP server** (Claude/Cursor/VS Code) | ✅ | ❌ (thin wrapper over existing API) |
-| CLI | ✅ | ❌ |
-| Claude Code plugin | ✅ | ❌ |
-| Integrations: n8n, Zapier, Make, LangChain, LlamaIndex | ✅ | ❌ (marketed on landing, not built) |
+| **`query` scrape format billed +4, no runtime handler** | Charged, returns nothing | schema `scrape.ts:53`, billed `scrape-service.ts:33`, no producer in `strategy.ts` |
+| **`audio` scrape format billed +4, no runtime handler** | Charged, returns nothing | schema `scrape.ts:46`, billed `scrape-service.ts:34`, no producer |
+| **Stealth/enhanced proxy egress never wired to the browser** | +4 "stealth" surcharge charged, escalation fires, but traffic is **not proxied** | `browser.ts` `newContext()` gets no `proxy` arg though `proxyServer` is threaded in |
+| **Crawl `maxDiscoveryDepth`/`maxDepth` not enforced** | Depth-limited crawls run unbounded (only `limit` caps) | parsed `crawl.ts:24`, never read by `frontier.ts`/worker |
+| **`skipTlsVerification` no-op** | TLS still verified despite flag | accepted `scrape.ts:148`, never applied in `fetcher.ts` |
+| **`location.country` no-op** | Geo requests ignored (only affects cache key) | flattened `scrape-service.ts:69`, never used in fetch/browser/proxy |
+| **Worker path never persists `cacheKey`** | Queued scrapes never cached; `storeInCache` inconsistent | `scrape.worker.ts:79-104` |
+| **Extract `showSources` mis-wired** | Reads `urlTrace` instead; `showSources` dead | `extract-service.ts:162` |
+| **Dead params (parsed, never applied)** | Silent no-ops mislead SDK users | search `location`/`filter`; batch `maxConcurrency`; crawl `robotsUserAgent`; extract `enableWebSearch`/`includeSubdomains`/`allowExternalLinks`/`ignoreSitemap`/`limit` |
+| **includeTags/excludeTags/removeBase64Images bypassed** on default Readability path | Options silently ignored unless main-content extraction fails | `strategy.ts:546-556` |
+| **headers/waitFor/blockAds/mobile apply on Playwright branch only** | No-op on the HTTP fast path | `fetcher.ts` lacks them |
+| **Extract webhooks declared but never emitted** | `extract.*` events never fire | no `emitWebhook` in `extract.worker.ts` |
 
-## 5. Agentic Tier — **missing**
-- `/agent` (FIRE-1): describe-what-you-need autonomous multi-page gathering → structured data.
-- `/interact` + Browser Sandbox: stateful sessions (click/fill/navigate via prompt or code).
-  Note: Peep already has the **actions engine** (`actions.ts`); the gap is the *session* surface.
+## Endpoint parity
+| Endpoint | FC v2 | Peep | Notes |
+|---|---|---|---|
+| `/scrape` | ✅ | ✅ | strong; see format/option gaps below |
+| `/crawl` (+stream/errors/cancel) | ✅ | ✅ | missing depth enforcement + `allowBackwardLinks` alias |
+| `/map` | ✅ | ✅ | +crt.sh subdomains (Peep bonus); missing `timeout`, relevance-ranked `search` |
+| `/search` | ✅ | ✅ | `location`/`filter` dead; DDG folds news→web |
+| `/batch/scrape` | ✅ | ✅ | `maxConcurrency` unenforced |
+| `/extract` (legacy in FC) | ✅ | 🟡 | biggest gap cluster (wildcards, web-search, per-URL opts, prompt-only) |
+| `/agent` | ✅ deep-research | 🟡 **different** | Peep's is a lead/data **harvester**, not FC's autonomous research agent |
+| `/interact` (browser sandbox) | ✅ | ❌ | dashboard has a "Coming Soon" stub, no endpoint |
+| `/parse` (PDF/DOCX/XLSX→md) | ✅ | ❌ | **no PDF/doc parsing at all** |
+| `/monitor` (scheduled change checks) | ✅ | ❌ | — |
+| `/llmstxt` | ✅ (deprecated) | ❌ | low value (FC deprecating) |
 
-## 6. File Parsing — **missing**
-- `/parse` endpoint + a fast PDF engine. Firecrawl's "Fire-PDF" is *Rust-based* — building
-  Peep's in `peep-rs` is parity + the premium-perf goal in one move.
+## Scrape formats
+| Format | FC v2 | Peep |
+|---|---|---|
+| markdown / html / rawHtml / links / images | ✅ | ✅ |
+| screenshot (+fullPage) | ✅ | ✅ |
+| json (structured) | ✅ | ✅ (needs AI key) |
+| changeTracking (git-diff + json) | ✅ | ✅ |
+| summary | ✅ | ✅ |
+| branding | ✅ | ✅ (Peep implemented independently) |
+| attributes | (FC: no) | ✅ Peep-only |
+| **highlights** | ✅ | ❌ |
+| **product** | ✅ | ❌ |
+| **video** | ✅ | ❌ |
+| **deterministicJson** | ✅ | ❌ |
+| query | ✅ | 🔴 billed, no handler |
+| audio | ✅ | 🔴 billed, no handler |
 
-## 7. ⭐ Peep-Original Differentiators (how we go *beyond* Firecrawl)
-- ⭐✅ **Asset Collector** (`/collect`) — one query → harvest every image across the web → deduped gallery. *(shipped)*
-- ⭐ **Rust core** — 10–100× HTTP-path concurrency at a fraction of the memory (migration in progress, R0 done).
-- ⭐ **$0 fully self-hostable** on one VPS (Postgres/Redis/disk/Caddy) — no required paid SaaS.
-- Ideas backlog: video/asset-pack export, reverse-image & entity search, scheduled change-watch with
-  email-diff, "research bundle" (search→crawl→extract→cite) one-shot, local-LLM (Ollama) extraction.
+## Cross-cutting
+| Feature | FC | Peep |
+|---|---|---|
+| Webhooks (HMAC signing, events, retries) | ✅ | ✅ (extract events not emitted) |
+| Change tracking | ✅ | ✅ |
+| Idempotency-Key | ✅ | ✅ |
+| Rate limiting + concurrency caps | ✅ | ✅ |
+| Result caching (maxAge/cacheKey) | ✅ | ✅ (worker path gap) |
+| Auth / API keys | ✅ | ✅ (SHA-256, constant-time) |
+| Structured extraction + AI abstraction | ✅ | ✅ (NVIDIA NIM + Gemini, free-tier) |
+| Screenshot/artifact storage | ✅ (cloud) | 🟡 local VPS disk (S3 SDK still a dep) |
+| Stealth / proxy | ✅ multi-geo | 🟡 Bright Data only **+ not wired (see bugs)** |
+| **PDF/DOCX parsing** | ✅ | ❌ |
+| **redactPII / Zero-Data-Retention** | ✅ | ❌ |
+| **Keyless access** | ✅ | ❌ |
+| **Real billing (Stripe checkout/top-up)** | ✅ | ❌ credits grant-only (Peep Card UI exists) |
+| **CLI** | ✅ | ❌ (marketed, not built) |
+| **Framework integrations** (LangChain/LlamaIndex/n8n/Zapier/Make/Dify) | ✅ | ❌ (landing-page logos only) |
+| SDKs | Node/Py/Go/Rust/Ruby/PHP/.NET/Java | 🟡 Node + Python **published** (`@shownomore/peep-sdk`, `peep-sdk`) |
+| MCP server | ✅ | ✅ published (`@shownomore/peep-mcp`, 9 tools) |
 
-## 8. ✅ Shipped This Session
-- `attributes` scrape format (deterministic CSS-selector extraction).
-- Search **image-harvest** pass-through (`images`/`attributes` now flow through `/search` enrichment).
-- ⭐ **Asset Collector**: `/api/v1/collect` + dashboard playground (`/dashboard/playground/collect`).
-- Infra/perf: self-hosted Postgres+Redis compose; fixed dead-Upstash stall (→ local Redis).
-- Rust core R0: workspace + wire contracts + verified BullMQ interop.
+## Peep has that Firecrawl doesn't
+- **YouTube intelligence** — metadata, SEO scoring, thumbnails, transcript, innertube comments, BYO-session (`src/server/youtube/*`).
+- **Branding / design-token extraction** from rendered CSS (`branding-extract.ts`).
+- **Agent lead/data harvester** — plan→search→scrape→dedupe (`agent/harvester.ts`).
+- **crt.sh subdomain discovery** for `/map`.
+- **Peep Card** credit model + metallic UI; multi-provider free-tier AI; Patchright engine-level anti-detect; `attributes` format.
 
-## 9. Prioritized Backlog
+## Prioritized roadmap
+**P0 — Integrity (fix or remove the "charged-but-broken" list above).** Highest trust impact,
+mostly small. Especially: stop billing `query`/`audio` (or implement), wire the stealth proxy
+into `browser.ts` (or stop charging), enforce crawl depth, remove/implement dead params.
+**P1 — High-value missing features:** `/parse` (PDF/DOCX), `highlights` format, `/interact`
+browser sandbox (dashboard stub already advertised "NEW"), Extract fixes (wildcards, web-search,
+per-URL scrapeOptions, prompt-only).
+**P2 — Platform:** real billing (Stripe), `/monitor`, geo/multi proxy, cloud artifact storage,
+`redactPII`/ZDR, keyless access.
+**P3 — Ecosystem:** CLI, more SDKs (Go/Rust/Ruby/PHP), framework integrations, `product`/`video`/
+`deterministicJson` formats, `/llmstxt` (low — FC deprecating).
 
-**P0 — high value / low effort (do next)**
-- [ ] `highlights` format (AI, reuses Gemini infra)
-- [ ] `/parse` endpoint (PDF → markdown; later swap in Rust Fire-PDF)
-- [ ] **MCP server** (thin wrapper over the existing REST API — unlocks Claude/Cursor/VS Code)
-- [ ] Asset Collector polish: large-image filter, dimensions, dedup-by-image-hash, video/social embeds
-
-**P1 — meaningful surface**
-- [ ] Official **Node/TS SDK**, then **Python SDK**
-- [ ] `/interact` stateful browser-session endpoint (build on existing actions engine)
-- [ ] CLI (wraps the SDK)
-- [ ] `audio` format (YouTube/media extraction)
-
-**P2 — larger bets**
-- [ ] `/agent` (FIRE-1-style autonomous gathering)
-- [ ] Browser Sandbox (managed isolated sessions)
-- [ ] Integrations: LangChain, LlamaIndex, n8n, Zapier, Make
-- [ ] Rust SDK (once the Rust core API stabilizes)
-
----
-*Source of truth for feature-matching. Firecrawl refs: docs.firecrawl.dev, firecrawl.dev/changelog (current as of 2026-06).*
+> Supersedes the previous PARITY.md, which was stale (marked shipped `/agent`, MCP, SDKs as
+> missing; claimed a `/collect` Asset Collector that does not exist in the tree).
