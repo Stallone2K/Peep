@@ -40,6 +40,12 @@ const YT_INCLUDE_REPLIES = process.env.YT_INCLUDE_REPLIES !== "false";
 const YT_COMMENTS_TIME_BUDGET_MS = Number(
   process.env.YT_COMMENTS_TIME_BUDGET_MS ?? "20000",
 );
+// ASYNC scrapes run in the worker with no HTTP request timeout, so they can
+// harvest EVERY comment + reply — big budget. Sync scrapes stay bounded above
+// so the request returns promptly. (Truly exhaustive => use an async scrape.)
+const YT_COMMENTS_TIME_BUDGET_MS_ASYNC = Number(
+  process.env.YT_COMMENTS_TIME_BUDGET_MS_ASYNC ?? "1800000", // 30 min
+);
 // Per innertube call ceiling — a single slow in-page fetch can't stall the run.
 const YT_INNERTUBE_CALL_TIMEOUT_MS = Number(
   process.env.YT_INNERTUBE_CALL_TIMEOUT_MS ?? "8000",
@@ -501,7 +507,10 @@ async function runPlaywright({
               maxComments: YT_MAX_COMMENTS,
               includeReplies: YT_INCLUDE_REPLIES,
               maxRepliesPerThread: YT_MAX_REPLIES_PER_THREAD,
-              timeBudgetMs: YT_COMMENTS_TIME_BUDGET_MS,
+              // Exhaustive for async jobs; bounded for sync so it can't hang.
+              timeBudgetMs: input.async
+                ? YT_COMMENTS_TIME_BUDGET_MS_ASYNC
+                : YT_COMMENTS_TIME_BUDGET_MS,
             }).catch(() => []);
             yt.comments = comments;
             // Total including expanded replies (reflects everything scraped).

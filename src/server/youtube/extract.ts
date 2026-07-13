@@ -241,20 +241,30 @@ export async function fetchYouTubeComments(
     pages += 1;
   }
 
-  // Expand reply threads (best-effort — a missing/expired token just yields
-  // no replies for that thread, never an error).
-  if (includeReplies) {
-    for (const { comment, replyToken } of threads) {
-      if (timedOut()) break;
-      const replies = await fetchReplies(
-        innertubeNext,
-        replyToken,
-        maxRepliesPerThread,
-        deadline,
-        comment.id,
-      );
-      if (replies.length) comment.replies = replies;
-    }
+  // Expand reply threads with bounded concurrency — each thread's token is
+  // independent, so fetching several in parallel is the big speedup (replies
+  // usually outnumber top-level comments). Best-effort: a missing/expired
+  // token just yields no replies for that thread, never an error.
+  if (includeReplies && threads.length) {
+    const REPLY_CONCURRENCY = Number(process.env.YT_REPLY_CONCURRENCY ?? "6");
+    let idx = 0;
+    const workers = Array.from(
+      { length: Math.min(REPLY_CONCURRENCY, threads.length) },
+      async () => {
+        while (idx < threads.length && !timedOut()) {
+          const { comment, replyToken } = threads[idx++]!;
+          const replies = await fetchReplies(
+            innertubeNext,
+            replyToken,
+            maxRepliesPerThread,
+            deadline,
+            comment.id,
+          );
+          if (replies.length) comment.replies = replies;
+        }
+      },
+    );
+    await Promise.all(workers);
   }
 
   return out;
@@ -370,9 +380,12 @@ function continuationInfo(resp: any): {
       e?.appendContinuationItemsAction?.continuationItems ??
       [];
     for (const item of ci) {
+      const cir = item?.continuationItemRenderer;
+      // Next-page token: top-level pages use `continuationEndpoint`; reply
+      // pages ("Show more replies") put it under a `button` command.
       const pt =
-        item?.continuationItemRenderer?.continuationEndpoint
-          ?.continuationCommand?.token;
+        cir?.continuationEndpoint?.continuationCommand?.token ??
+        cir?.button?.buttonRenderer?.command?.continuationCommand?.token;
       if (pt) next = pt;
       const ctr = item?.commentThreadRenderer;
       if (ctr) {
