@@ -7,7 +7,6 @@ import {
   HardHat,
   Loader2,
   Search,
-  Sparkles,
   Telescope,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -222,7 +221,7 @@ function EmptyState({
     <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-7 px-4 text-center">
       <div className="flex flex-col items-center gap-4">
         <span className="flex size-12 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
-          <Sparkles className="size-6" />
+          <AgentFace className="size-9" />
         </span>
         <div className="flex flex-col gap-1.5">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -282,7 +281,7 @@ function TurnView({ turn }: { turn: Turn }) {
       {/* Assistant response */}
       <div className="flex gap-3">
         <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-orange-400">
-          <Sparkles className="size-4" />
+          <AgentFace className="size-6" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           {/* Activity trace */}
@@ -387,6 +386,28 @@ function renderCell(val: unknown) {
       </a>
     );
   return s;
+}
+
+// The Notion-face avatar, rendered as an orange mask so it matches the app's
+// accent (same orange tint the old sparkle icon used). The PNG's transparent
+// line-art becomes solid orange; the surrounding translucent-orange chip stays.
+function AgentFace({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn("inline-block bg-orange-400", className)}
+      style={{
+        WebkitMaskImage: "url(/agent-avatar.png)",
+        maskImage: "url(/agent-avatar.png)",
+        WebkitMaskSize: "contain",
+        maskSize: "contain",
+        WebkitMaskRepeat: "no-repeat",
+        maskRepeat: "no-repeat",
+        WebkitMaskPosition: "center",
+        maskPosition: "center",
+      }}
+    />
+  );
 }
 
 function StepIcon({ type }: { type: string }) {

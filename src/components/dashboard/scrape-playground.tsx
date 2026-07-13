@@ -1468,7 +1468,7 @@ function RecentRunCard({ run }: { run: RecentRun }) {
           {host ?? run.url}
         </span>
         <Link
-          href={`/dashboard/activity-logs`}
+          href={`/dashboard/activity-logs/${run.id}`}
           aria-label="Open run"
           className="text-muted-foreground hover:text-foreground"
         >
