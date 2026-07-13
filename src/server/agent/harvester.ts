@@ -1,4 +1,4 @@
-import { generateAI, MAX_INPUT_CHARS } from "@/server/ai/client";
+import { generateAI, isAIConfigured, MAX_INPUT_CHARS } from "@/server/ai/client";
 import { parseJsonFromResponse } from "@/server/ai/extract";
 import { resolveSearchProvider } from "@/server/search";
 import { runScrapeWithStrategy } from "@/server/scraper/strategy";
@@ -33,7 +33,17 @@ export async function runAgentHarvest(
     onStep?.(s);
   };
 
+  if (!isAIConfigured()) {
+    log(
+      "plan",
+      "AI is not configured — planning + record extraction are degraded (set NVIDIA_API_KEY or GEMINI_API_KEY).",
+    );
+  }
+
   // 1. PLAN — LLM derives the output fields + diverse search queries.
+  // planTask never throws: on any AI failure/timeout it returns a fallback
+  // plan (schema fields or the raw prompt) so a slow/aborted planner can't
+  // terminate the whole run.
   const plan = await planTask(input);
   log(
     "plan",
@@ -104,29 +114,47 @@ export async function runAgentHarvest(
 
 // ─── LLM steps ───────────────────────────────────────────────────────
 async function planTask(input: AgentRequestInput): Promise<Plan> {
-  const schemaHint =
+  // Deterministic fallback used whenever the AI planner is unavailable,
+  // times out (AbortError), or returns unusable output — so the harvest
+  // always proceeds instead of aborting the whole agent run.
+  const schemaFields =
     input.schema && typeof input.schema === "object"
-      ? `\nUse these exact fields: ${Object.keys(input.schema as object).join(", ")}.`
-      : "";
-  const { text } = await generateAI({
-    systemPrompt:
-      "You are a web-research planner. Given a data-harvesting task, return ONLY JSON " +
-      '{"fields": string[], "queries": string[]}. `fields` are the data columns to ' +
-      "extract (e.g. name, phone, price, location, imageUrl, sourceUrl). `queries` are " +
-      "5-8 DIVERSE web-search queries that would surface pages containing this data " +
-      "(include owner/contact-oriented and site-specific angles).",
-    userMessage: `TASK: ${input.prompt}${schemaHint}`,
-    expectJson: true,
-  });
+      ? Object.keys(input.schema as object)
+      : [];
+  const fallback: Plan = {
+    fields: schemaFields.length ? schemaFields : ["name", "detail", "url"],
+    queries: [input.prompt],
+  };
+
+  const schemaHint = schemaFields.length
+    ? `\nUse these exact fields: ${schemaFields.join(", ")}.`
+    : "";
+
+  let text: string;
+  try {
+    ({ text } = await generateAI({
+      systemPrompt:
+        "You are a web-research planner. Given a data-harvesting task, return ONLY JSON " +
+        '{"fields": string[], "queries": string[]}. `fields` are the data columns to ' +
+        "extract (e.g. name, phone, price, location, imageUrl, sourceUrl). `queries` are " +
+        "5-8 DIVERSE web-search queries that would surface pages containing this data " +
+        "(include owner/contact-oriented and site-specific angles).",
+      userMessage: `TASK: ${input.prompt}${schemaHint}`,
+      expectJson: true,
+    }));
+  } catch {
+    return fallback;
+  }
+
   const parsed = parseJsonFromResponse(text) as Partial<Plan>;
   const fields =
     Array.isArray(parsed.fields) && parsed.fields.length
       ? parsed.fields.map(String)
-      : ["title", "detail", "url"];
+      : fallback.fields;
   const queries =
     Array.isArray(parsed.queries) && parsed.queries.length
       ? parsed.queries.map(String).slice(0, 8)
-      : [input.prompt];
+      : fallback.queries;
   return { fields, queries };
 }
 

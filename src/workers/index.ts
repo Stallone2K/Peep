@@ -54,3 +54,16 @@ async function shutdown(signal: string) {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+
+// Crash guards — a stray rejection from a job handler (e.g. an aborted
+// fetch or a fire-and-forget promise) must not silently take the whole
+// worker down. Log loudly; keep serving other queues on unhandled
+// rejections, and exit(1) on a truly uncaught exception so the process
+// manager (pm2) restarts a clean process.
+process.on("unhandledRejection", (reason) => {
+  console.error("[worker] Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[worker] Uncaught exception — exiting for a clean restart:", err);
+  process.exit(1);
+});
