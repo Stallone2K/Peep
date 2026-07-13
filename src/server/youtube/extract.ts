@@ -1,17 +1,21 @@
 // YouTube video intelligence — keyless. Parses the watch page's embedded
-// `ytInitialPlayerResponse` / `ytInitialData` JSON for metadata + SEO, and
-// fetches the transcript from the caption tracks. Comments / title-history
-// land in later phases (YT-3 / YT-4). All free, our own code.
+// `ytInitialPlayerResponse` / `ytInitialData` JSON for metadata + SEO, fetches
+// the transcript from the caption tracks, and exhaustively harvests the comment
+// section via the innertube `next` API — every top-level comment plus expanded
+// reply threads, bounded by safety ceilings + a time budget. All free, our own code.
 
 export type TranscriptSegment = { start: number; text: string };
 
 export type YouTubeComment = {
+  id?: string;
   author: string | null;
   authorChannelId: string | null;
   text: string;
   likes: number | null;
   replyCount: number | null;
   publishedAt: string | null;
+  // Populated for top-level comments when reply expansion is enabled.
+  replies?: YouTubeComment[];
 };
 
 export type YouTubeData = {
@@ -179,32 +183,115 @@ export async function extractYouTubeFromHtml(
   };
 }
 
+export type FetchCommentsOptions = {
+  innertubeNext: (body: Record<string, unknown>) => Promise<unknown>;
+  videoId: string;
+  // Ceiling on top-level comments (safety backstop; effectively "all" by default).
+  maxComments?: number;
+  // Expand every reply thread via reply-continuation tokens.
+  includeReplies?: boolean;
+  // Per-thread reply ceiling (safety backstop).
+  maxRepliesPerThread?: number;
+  // Wall-clock budget so exhaustive scraping of a huge video stays bounded.
+  timeBudgetMs?: number;
+};
+
 // Harvest comments via YouTube's innertube `next` API. `innertubeNext` performs
 // the authenticated POST in the page (BYO-session cookies); all parsing of the
-// fragile entity-payload format happens here in Node.
+// fragile entity-payload format happens here in Node. Paginates every top-level
+// comment page and (when includeReplies) expands each reply thread, bounded by
+// maxComments / maxRepliesPerThread / timeBudgetMs so it can't run forever.
 export async function fetchYouTubeComments(
-  max: number,
-  innertubeNext: (body: Record<string, unknown>) => Promise<unknown>,
-  videoId: string,
+  opts: FetchCommentsOptions,
 ): Promise<YouTubeComment[]> {
+  const {
+    innertubeNext,
+    videoId,
+    maxComments = 100_000,
+    includeReplies = true,
+    maxRepliesPerThread = 5_000,
+    timeBudgetMs = 180_000,
+  } = opts;
+  const deadline = Date.now() + timeBudgetMs;
+  const timedOut = () => Date.now() > deadline;
+
   const out: YouTubeComment[] = [];
+  const threads: { comment: YouTubeComment; replyToken: string }[] = [];
+
   let resp = await innertubeNext({ videoId });
   let token = findCommentsToken(resp);
   let pages = 0;
-  // ~20 comments/page → allow enough pages to reach `max` (+ headroom).
-  const maxPages = Math.ceil(max / 15) + 10;
-  while (token && out.length < max && pages < maxPages) {
+  const PAGE_CAP = 6_000; // ~120k comments backstop
+
+  while (token && out.length < maxComments && pages < PAGE_CAP && !timedOut()) {
     resp = await innertubeNext({ continuation: token });
-    const { items, next } = parseCommentsPage(resp);
-    for (const c of items) {
+    const ents = entitiesFrom(resp);
+    if (ents.length === 0) break;
+    const { next, replyTokenById } = continuationInfo(resp);
+    for (const c of ents) {
+      if (out.length >= maxComments) break;
       out.push(c);
-      if (out.length >= max) break;
+      const rt = c.id ? replyTokenById.get(c.id) : undefined;
+      if (includeReplies && rt && (c.replyCount ?? 0) !== 0) {
+        threads.push({ comment: c, replyToken: rt });
+      }
     }
-    if (items.length === 0) break;
+    if (!next || next === token) break;
     token = next;
     pages += 1;
   }
+
+  // Expand reply threads (best-effort — a missing/expired token just yields
+  // no replies for that thread, never an error).
+  if (includeReplies) {
+    for (const { comment, replyToken } of threads) {
+      if (timedOut()) break;
+      const replies = await fetchReplies(
+        innertubeNext,
+        replyToken,
+        maxRepliesPerThread,
+        deadline,
+        comment.id,
+      );
+      if (replies.length) comment.replies = replies;
+    }
+  }
+
   return out;
+}
+
+// Walk one reply-continuation thread to completion (paginated).
+async function fetchReplies(
+  innertubeNext: (body: Record<string, unknown>) => Promise<unknown>,
+  startToken: string,
+  maxReplies: number,
+  deadline: number,
+  parentId: string | undefined,
+): Promise<YouTubeComment[]> {
+  const replies: YouTubeComment[] = [];
+  let token: string | null = startToken;
+  let pages = 0;
+  const REPLY_PAGE_CAP = 500;
+  while (
+    token &&
+    replies.length < maxReplies &&
+    pages < REPLY_PAGE_CAP &&
+    Date.now() <= deadline
+  ) {
+    const resp = await innertubeNext({ continuation: token });
+    const ents = entitiesFrom(resp);
+    if (ents.length === 0) break;
+    const { next } = continuationInfo(resp);
+    for (const c of ents) {
+      if (parentId && c.id === parentId) continue; // skip echoed parent
+      if (replies.length >= maxReplies) break;
+      replies.push(c);
+    }
+    if (!next || next === token) break;
+    token = next;
+    pages += 1;
+  }
+  return replies;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -228,39 +315,77 @@ function findCommentsToken(resp: any): string | null {
   return null;
 }
 
-function parseCommentsPage(resp: any): {
-  items: YouTubeComment[];
-  next: string | null;
-} {
-  const items: YouTubeComment[] = [];
+// One comment entity payload → a YouTubeComment (with its id, for reply mapping).
+function commentFromEntity(p: any): YouTubeComment | null {
+  const text = p?.properties?.content?.content;
+  if (!text) return null;
+  return {
+    id: p?.properties?.commentId ?? undefined,
+    author: p.author?.displayName ?? null,
+    authorChannelId: p.author?.channelId ?? null,
+    text,
+    likes: parseCount(p.toolbar?.likeCountNotliked ?? p.toolbar?.likeCountLiked),
+    replyCount: parseCount(p.toolbar?.replyCount),
+    publishedAt: p.properties?.publishedTime ?? null,
+  };
+}
+
+// All comment entities in a `next` response, in order (content lives in the
+// flat framework-update mutations regardless of top-level vs reply page).
+function entitiesFrom(resp: any): YouTubeComment[] {
+  const out: YouTubeComment[] = [];
   const muts = resp?.frameworkUpdates?.entityBatchUpdate?.mutations ?? [];
   for (const m of muts) {
-    const p = m?.payload?.commentEntityPayload;
-    const text = p?.properties?.content?.content;
-    if (!text) continue;
-    items.push({
-      author: p.author?.displayName ?? null,
-      authorChannelId: p.author?.channelId ?? null,
-      text,
-      likes: parseCount(p.toolbar?.likeCountNotliked ?? p.toolbar?.likeCountLiked),
-      replyCount: parseCount(p.toolbar?.replyCount),
-      publishedAt: p.properties?.publishedTime ?? null,
-    });
+    const c = commentFromEntity(m?.payload?.commentEntityPayload);
+    if (c) out.push(c);
   }
+  return out;
+}
+
+// The reply-continuation token for a comment thread ("View N replies" button).
+function findReplyToken(ctr: any): string | null {
+  const contents = ctr?.replies?.commentRepliesRenderer?.contents ?? [];
+  for (const c of contents) {
+    const cir = c?.continuationItemRenderer;
+    const t =
+      cir?.continuationEndpoint?.continuationCommand?.token ??
+      cir?.button?.buttonRenderer?.command?.continuationCommand?.token;
+    if (t) return t;
+  }
+  return null;
+}
+
+// The next-page token (top-level continuation) + a map of comment-id → its
+// reply-thread token. Page continuation is a trailing continuationItemRenderer;
+// reply tokens are nested inside each commentThreadRenderer.
+function continuationInfo(resp: any): {
+  next: string | null;
+  replyTokenById: Map<string, string>;
+} {
   let next: string | null = null;
+  const replyTokenById = new Map<string, string>();
   for (const e of resp?.onResponseReceivedEndpoints ?? []) {
     const ci =
       e?.reloadContinuationItemsCommand?.continuationItems ??
       e?.appendContinuationItemsAction?.continuationItems ??
       [];
     for (const item of ci) {
-      const t =
+      const pt =
         item?.continuationItemRenderer?.continuationEndpoint
           ?.continuationCommand?.token;
-      if (t) next = t;
+      if (pt) next = pt;
+      const ctr = item?.commentThreadRenderer;
+      if (ctr) {
+        const cid =
+          ctr?.commentViewModel?.commentViewModel?.commentId ??
+          ctr?.comment?.commentRenderer?.commentId ??
+          null;
+        const rt = findReplyToken(ctr);
+        if (cid && rt) replyTokenById.set(cid, rt);
+      }
     }
   }
-  return { items, next };
+  return { next, replyTokenById };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -306,7 +431,10 @@ export function renderYouTubeMarkdown(yt: YouTubeData): string {
   if (yt.comments.length) {
     out.push(`## Top Comments (${yt.commentCount})`);
     for (const c of yt.comments.slice(0, 10)) {
-      out.push(`**${c.author ?? "—"}** (${c.likes ?? 0} likes): ${c.text}`);
+      const reps = c.replies?.length
+        ? ` · ${c.replies.length} ${c.replies.length === 1 ? "reply" : "replies"}`
+        : "";
+      out.push(`**${c.author ?? "—"}** (${c.likes ?? 0} likes${reps}): ${c.text}`);
     }
   }
   return out.join("\n\n");

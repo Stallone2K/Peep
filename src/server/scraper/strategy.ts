@@ -26,9 +26,17 @@ import {
 } from "@/server/youtube/extract";
 
 // Cap auto-harvested top-level comments per video (each innertube page ≈ 20).
-// 2000 covers the vast majority of videos in full; huge viral videos are
-// bounded here for runtime. (Replies inside threads are not expanded.)
-const YT_MAX_COMMENTS = 2000;
+// Exhaustive comment harvesting: paginate every top-level comment AND expand
+// every reply thread, bounded only by safety ceilings + a wall-clock budget so
+// a huge viral video can't run forever. All overridable via env.
+const YT_MAX_COMMENTS = Number(process.env.YT_MAX_COMMENTS ?? "100000");
+const YT_MAX_REPLIES_PER_THREAD = Number(
+  process.env.YT_MAX_REPLIES_PER_THREAD ?? "5000",
+);
+const YT_INCLUDE_REPLIES = process.env.YT_INCLUDE_REPLIES !== "false";
+const YT_COMMENTS_TIME_BUDGET_MS = Number(
+  process.env.YT_COMMENTS_TIME_BUDGET_MS ?? "180000",
+);
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
@@ -473,13 +481,20 @@ async function runPlaywright({
                     .catch(() => null),
                 { key: cfg.key, ver: cfg.ver, body },
               );
-            const comments = await fetchYouTubeComments(
-              YT_MAX_COMMENTS,
+            const comments = await fetchYouTubeComments({
               innertubeNext,
               videoId,
-            ).catch(() => []);
+              maxComments: YT_MAX_COMMENTS,
+              includeReplies: YT_INCLUDE_REPLIES,
+              maxRepliesPerThread: YT_MAX_REPLIES_PER_THREAD,
+              timeBudgetMs: YT_COMMENTS_TIME_BUDGET_MS,
+            }).catch(() => []);
             yt.comments = comments;
-            yt.commentCount = comments.length;
+            // Total including expanded replies (reflects everything scraped).
+            yt.commentCount = comments.reduce(
+              (n, c) => n + 1 + (c.replies?.length ?? 0),
+              0,
+            );
           }
           /* eslint-enable @typescript-eslint/no-explicit-any */
 
