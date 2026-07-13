@@ -34,8 +34,15 @@ const YT_MAX_REPLIES_PER_THREAD = Number(
   process.env.YT_MAX_REPLIES_PER_THREAD ?? "5000",
 );
 const YT_INCLUDE_REPLIES = process.env.YT_INCLUDE_REPLIES !== "false";
+// Default kept SHORT so a YouTube scrape returns promptly (comment harvesting
+// is the slow part). Truly-exhaustive harvesting of a huge video can take
+// minutes — raise this env (or use an async scrape) when you need it all.
 const YT_COMMENTS_TIME_BUDGET_MS = Number(
-  process.env.YT_COMMENTS_TIME_BUDGET_MS ?? "180000",
+  process.env.YT_COMMENTS_TIME_BUDGET_MS ?? "20000",
+);
+// Per innertube call ceiling — a single slow in-page fetch can't stall the run.
+const YT_INNERTUBE_CALL_TIMEOUT_MS = Number(
+  process.env.YT_INNERTUBE_CALL_TIMEOUT_MS ?? "8000",
 );
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
@@ -464,8 +471,8 @@ async function runPlaywright({
             }, PUB_KEY)
             .catch(() => ({ key: PUB_KEY, ver: "2.20240101" }));
           {
-            const innertubeNext = (body: Record<string, unknown>) =>
-              page.evaluate(
+            const innertubeNext = (body: Record<string, unknown>) => {
+              const call = page.evaluate(
                 (a: any) =>
                   fetch("/youtubei/v1/next?key=" + a.key, {
                     method: "POST",
@@ -481,6 +488,13 @@ async function runPlaywright({
                     .catch(() => null),
                 { key: cfg.key, ver: cfg.ver, body },
               );
+              // Cap each call so one slow/hanging in-page fetch can't stall the
+              // whole comment harvest (null → the harvester treats it as "done").
+              const timeout = new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), YT_INNERTUBE_CALL_TIMEOUT_MS),
+              );
+              return Promise.race([call, timeout]).catch(() => null);
+            };
             const comments = await fetchYouTubeComments({
               innertubeNext,
               videoId,
