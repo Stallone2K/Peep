@@ -388,24 +388,17 @@ function renderCell(val: unknown) {
   return s;
 }
 
-// The Notion-face avatar, rendered as an orange mask so it matches the app's
-// accent (same orange tint the old sparkle icon used). The PNG's transparent
-// line-art becomes solid orange; the surrounding translucent-orange chip stays.
+// The Notion-face avatar. The PNG is pre-recolored to orange line-art on a
+// transparent background, so a plain <img> shows the full detail (no CSS mask,
+// which collapsed the opaque silhouette into a solid orange blob).
 function AgentFace({ className }: { className?: string }) {
   return (
-    <span
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/agent-avatar.png"
+      alt=""
       aria-hidden
-      className={cn("inline-block bg-orange-400", className)}
-      style={{
-        WebkitMaskImage: "url(/agent-avatar.png)",
-        maskImage: "url(/agent-avatar.png)",
-        WebkitMaskSize: "contain",
-        maskSize: "contain",
-        WebkitMaskRepeat: "no-repeat",
-        maskRepeat: "no-repeat",
-        WebkitMaskPosition: "center",
-        maskPosition: "center",
-      }}
+      className={cn("object-contain", className)}
     />
   );
 }

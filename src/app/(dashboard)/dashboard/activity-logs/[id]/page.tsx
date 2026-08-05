@@ -59,12 +59,33 @@ async function RunDetail({ params }: { params: Promise<{ id: string }> }) {
   });
 
   if (!job) {
+    // Not a scrape — maybe it's a crawl. Show the crawl's discovered pages,
+    // each linking to its own page-content view.
+    const crawl = await db.crawlJob.findFirst({
+      where: { id, userId: session.user.id },
+      select: {
+        id: true,
+        rootUrl: true,
+        status: true,
+        createdAt: true,
+        completedAt: true,
+        totalDiscovered: true,
+        totalCompleted: true,
+        jobs: {
+          select: { id: true, url: true, status: true },
+          orderBy: { createdAt: "asc" },
+          take: 500,
+        },
+      },
+    });
+    if (crawl) return <CrawlDetail crawl={crawl} />;
+
     return (
       <div className="border-border/60 bg-card/20 rounded-lg border px-6 py-16 text-center">
         <h2 className="text-lg font-medium">Run Not Found</h2>
         <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm">
-          No Scrape With This ID Belongs To Your Account (Crawl/Batch/Map/Search
-          Runs Don&apos;t Have A Single-Page View — See Activity Logs).
+          No Run With This ID Belongs To Your Account (Map/Search Results Aren&apos;t
+          Stored As Pages — See Activity Logs).
         </p>
       </div>
     );
@@ -181,6 +202,65 @@ async function RunDetail({ params }: { params: Promise<{ id: string }> }) {
           ) : null}
         </>
       )}
+    </>
+  );
+}
+
+function CrawlDetail({
+  crawl,
+}: {
+  crawl: {
+    rootUrl: string;
+    status: string;
+    createdAt: Date;
+    totalDiscovered: number;
+    totalCompleted: number;
+    jobs: { id: string; url: string; status: string }[];
+  };
+}) {
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <StatusPill status={crawl.status} />
+          <a
+            href={crawl.rootUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 font-mono text-sm break-all"
+          >
+            {crawl.rootUrl}
+            <ExternalLink className="size-3.5 shrink-0" />
+          </a>
+        </div>
+        <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs">
+          <span>{crawl.createdAt.toISOString().slice(0, 19).replace("T", " ")}</span>
+          <span>Crawl</span>
+          <span>
+            {crawl.totalCompleted}/{crawl.totalDiscovered} pages
+          </span>
+        </div>
+      </div>
+
+      <Section title={`Pages (${crawl.jobs.length})`}>
+        {crawl.jobs.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No Pages Scraped Yet.</p>
+        ) : (
+          <ul className="border-border/60 bg-card/30 divide-border/40 max-h-[65vh] divide-y overflow-auto rounded-lg border text-sm">
+            {crawl.jobs.map((c) => (
+              <li key={c.id} className="flex items-center gap-3 px-3 py-2">
+                <StatusPill status={c.status} />
+                <Link
+                  href={`/dashboard/activity-logs/${c.id}`}
+                  className="min-w-0 flex-1 truncate text-orange-300 hover:underline"
+                >
+                  {c.url}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
     </>
   );
 }
