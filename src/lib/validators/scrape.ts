@@ -43,17 +43,30 @@ const jsonFormat = z.object({
 });
 const summaryFormat = z.object({ type: z.literal("summary") });
 const brandingFormat = z.object({ type: z.literal("branding") });
-const audioFormat = z.object({ type: z.literal("audio") });
+// `audio` transcribes the page's audio track (YouTube / any
+// yt-dlp-supported site / a direct audio-or-video file) to text via
+// the pluggable whisper engine (see server/scraper/audio.ts).
+// `language` is an optional ISO-639-1 hint that skips auto-detect;
+// `timestamps` (default true) controls whether per-segment start/end
+// times are returned alongside the flat transcript.
+//
+// Status: "Coming Soon" — fully implemented but gated behind
+// AUDIO_FORMAT_ENABLED. While off, the format is accepted (no 422) but
+// returns a coming-soon hint and is NOT charged. Flip the flag to ship.
+const audioFormat = z.object({
+  type: z.literal("audio"),
+  language: z.string().min(2).max(10).optional(),
+  timestamps: z.boolean().default(true),
+});
+// NOTE: the `query` format was REMOVED (PARITY 🔴): it was accepted AND
+// billed +4 credits but had no runtime handler. Re-add to this union
+// (plus the surcharge in scrape-service computeCredits) only together
+// with a real producer in strategy.ts.
 const attributesFormat = z.object({
   type: z.literal("attributes"),
   selectors: z.array(
     z.object({ selector: z.string(), attribute: z.string() }),
   ),
-});
-const queryFormat = z.object({
-  type: z.literal("query"),
-  prompt: boundedString(1, 10_000),
-  directQuote: z.boolean().default(false),
 });
 const changeTrackingFormat = z.object({
   type: z.literal("changeTracking"),
@@ -75,7 +88,6 @@ const formatObject = z.union([
   brandingFormat,
   audioFormat,
   attributesFormat,
-  queryFormat,
   changeTrackingFormat,
 ]);
 

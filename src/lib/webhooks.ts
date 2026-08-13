@@ -1,6 +1,15 @@
 import { randomUUID, createHmac } from "node:crypto";
 
 import { webhookQueue } from "@/lib/queue";
+import { assertSafeUrl } from "@/server/scraper/ssrf";
+
+// Webhook targets must be https (set WEBHOOK_ALLOW_HTTP=true to relax
+// for local receivers) and must not resolve to private address space —
+// a webhook pointed at 169.254.169.254 / an internal service is a
+// server-side request the attacker controls, carrying scraped data.
+export function webhookRequiresHttps(): boolean {
+  return process.env.WEBHOOK_ALLOW_HTTP !== "true";
+}
 
 // Webhook emitter — enqueues a delivery onto the `webhook` BullMQ
 // queue. The worker signs + POSTs the body; BullMQ handles retries
@@ -61,6 +70,19 @@ export async function emitWebhook({
   refType?: "CrawlJob" | "BatchJob" | "ExtractJob";
   refId?: string;
 }): Promise<void> {
+  // SSRF check at enqueue time (H1). The worker re-validates at
+  // delivery time too — DNS can change between the two.
+  try {
+    await assertSafeUrl(url, { requireHttps: webhookRequiresHttps() });
+  } catch (err) {
+    console.error("[webhook] unsafe delivery URL — dropped", {
+      event,
+      url,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
   const deliveryId = randomUUID();
   const payload: WebhookPayload = {
     deliveryId,

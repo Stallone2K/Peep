@@ -32,7 +32,7 @@ export function TopBar({ teamName }: { teamName: string }) {
         <IconButton ariaLabel="Display">
           <Monitor className="size-4" />
         </IconButton>
-        <LabelButton href="/docs/help" icon={HelpCircle}>
+        <LabelButton href="/docs" icon={HelpCircle}>
           Help
         </LabelButton>
         <LabelButton href="/docs" icon={BookOpen}>

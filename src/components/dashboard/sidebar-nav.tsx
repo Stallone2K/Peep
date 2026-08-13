@@ -2,18 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import {
   Antenna,
   BadgeDollarSign,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   FileText,
   Globe,
   HardHat,
-  Images,
   KeyRound,
   LampDesk,
+  LogOut,
   Map as MapIcon,
   MousePointer,
   Search,
@@ -23,6 +25,14 @@ import {
 import type { ComponentType } from "react";
 
 import { Logo } from "@/components/marketing/logo";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useSettings } from "@/components/dashboard/settings/settings-context";
 import { cn } from "@/lib/utils";
 
 type Item = {
@@ -122,6 +132,7 @@ export function SidebarNav({
   userImage?: string | null;
 }) {
   const pathname = usePathname();
+  const { openSettings } = useSettings();
   const isActive = (href: string) =>
     href === "/dashboard"
       ? pathname === "/dashboard"
@@ -160,9 +171,17 @@ export function SidebarNav({
                     <Link
                       href={item.disabled ? "#" : item.href}
                       aria-disabled={item.disabled || undefined}
-                      onClick={
-                        item.disabled ? (e) => e.preventDefault() : undefined
-                      }
+                      onClick={(e) => {
+                        if (item.disabled) {
+                          e.preventDefault();
+                          return;
+                        }
+                        // Settings opens the modal instead of navigating.
+                        if (item.href === "/dashboard/settings") {
+                          e.preventDefault();
+                          openSettings("account");
+                        }
+                      }}
                       className={cn(
                         "group/item flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
                         active && !open
@@ -220,8 +239,8 @@ export function SidebarNav({
       </nav>
 
       <div className="border-border/60 mt-auto border-t p-3">
-        <button
-          type="button"
+        <Link
+          href="/changelog"
           className="text-muted-foreground hover:text-foreground mb-2 inline-flex w-full items-center justify-between rounded-md px-2 py-2 text-sm transition-colors"
         >
           <span className="inline-flex items-center gap-2">
@@ -234,25 +253,47 @@ export function SidebarNav({
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-orange-500 opacity-60" />
             <span className="relative inline-flex size-2 rounded-full bg-orange-500" />
           </span>
-        </button>
+        </Link>
 
-        <div className="flex items-center gap-2 rounded-md px-2 py-1.5">
-          <div className="bg-muted flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-medium">
-            {userImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={userImage}
-                alt=""
-                className="size-full rounded-full object-cover"
-              />
-            ) : (
-              (userName?.[0] ?? userEmail?.[0] ?? "?").toUpperCase()
-            )}
-          </div>
-          <span className="min-w-0 flex-1 truncate text-xs">
-            {userEmail ?? "Signed Out"}
-          </span>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="hover:bg-muted/40 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors"
+              >
+                <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-medium">
+                  {userImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={userImage}
+                      alt=""
+                      className="size-full rounded-full object-cover"
+                    />
+                  ) : (
+                    (userName?.[0] ?? userEmail?.[0] ?? "?").toUpperCase()
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {userEmail ?? "Signed Out"}
+                </span>
+                <ChevronsUpDown className="text-muted-foreground size-3.5 shrink-0" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onClick={() => openSettings("account")}>
+              <Settings className="size-4" /> Settings
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => signOut({ callbackUrl: "/sign-in" })}
+              className="text-destructive data-highlighted:text-destructive"
+            >
+              <LogOut className="size-4" /> Sign Out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <button
           type="button"

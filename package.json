@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "worker": "tsx src/workers/index.ts",
     "worker:dev": "tsx watch src/workers/index.ts",
     "dev:all": "concurrently -n next,worker -c blue,green \"yarn dev\" \"yarn worker:dev\""
@@ -40,6 +41,7 @@
     "playwright": "^1.59.1",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "re2js": "^2.8.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "robots-parser": "^3.0.1",
@@ -68,6 +70,7 @@
     "prisma": "^7.7.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

@@ -37,7 +37,7 @@ class BrowserPool {
     opts?: {
       mobile?: boolean;
       blockAds?: boolean;
-      proxyServer?: string;
+      proxy?: { server: string; username?: string; password?: string };
       languages?: string[];
       cookies?: Array<{
         name: string;
@@ -51,10 +51,15 @@ class BrowserPool {
 
     // Authenticated (BYO-session) scrapes get a fresh ISOLATED context that's
     // never pooled — so one user's session cookies can't leak into another's
-    // scrape sharing a recycled context.
-    const isolated = !!opts?.cookies?.length;
+    // scrape sharing a recycled context. Proxied (stealth/enhanced) scrapes
+    // are isolated too: the proxy is a context-level setting, and a pooled
+    // context would leak proxied egress into unproxied scrapes (and vice
+    // versa).
+    const isolated = !!opts?.cookies?.length || !!opts?.proxy;
     const ctx = isolated
-      ? await this.browser!.newContext()
+      ? await this.browser!.newContext(
+          opts?.proxy ? { proxy: opts.proxy } : {},
+        )
       : await this.leaseContext();
     if (isolated && opts?.cookies) {
       await ctx.addCookies(opts.cookies).catch(() => {});

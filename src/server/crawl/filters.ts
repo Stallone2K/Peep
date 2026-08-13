@@ -1,3 +1,5 @@
+import { RE2JS } from "re2js";
+
 // URL filtering + normalization used by the crawl frontier.
 //
 // Firecrawl-parity notes:
@@ -81,6 +83,11 @@ export type CompiledFrontierFilter = {
   shouldVisit: (url: string) => boolean;
 };
 
+// Cap the string we run user regexes against. Defence-in-depth on top
+// of the linear-time engine — no legitimate URL filter needs to see
+// more than this, and it bounds work on absurdly long discovered URLs.
+const MAX_MATCH_TARGET = 4_000;
+
 export function compileFilter(cfg: FrontierConfig): CompiledFrontierFilter {
   const root = new URL(cfg.rootUrl);
   const rootEtld1 = registrableDomain(root.hostname);
@@ -111,7 +118,10 @@ export function compileFilter(cfg: FrontierConfig): CompiledFrontierFilter {
       if (!cfg.allowBinaryFormats && hasBinaryExtension(url)) return false;
 
       // exclude wins
-      const target = cfg.regexOnFullURL ? url : u.pathname + u.search;
+      const target = (cfg.regexOnFullURL ? url : u.pathname + u.search).slice(
+        0,
+        MAX_MATCH_TARGET,
+      );
       for (const re of excludes) if (re.test(target)) return false;
       if (includes.length > 0) {
         let matched = false;
@@ -149,12 +159,30 @@ function registrableDomain(host: string): string {
   return last2;
 }
 
-function compileRegex(pattern: string): RegExp {
+type CompiledPattern = { test: (s: string) => boolean };
+
+// Compile a user-supplied crawl regex with RE2 (re2js) instead of the
+// native engine. RE2 guarantees LINEAR-time matching, which closes the
+// ReDoS hole (SECURITY.md M1): a pattern like `(a+)+$` that causes
+// catastrophic backtracking in `RegExp` — and, because Node is
+// single-threaded, hangs the whole crawl worker for every tenant — runs
+// in bounded time here. RE2 rejects backreferences / lookaround (the
+// exact features that enable the blowup); those aren't needed for URL
+// path filters, and a pattern using them falls back to a literal match.
+function compileRegex(pattern: string): CompiledPattern {
   try {
-    return new RegExp(pattern);
+    const re = RE2JS.compile(pattern);
+    return { test: (s) => re.matcher(s).find() };
   } catch {
-    // Fall back to a literal match if the caller passed an invalid
-    // regex — better than blowing up the whole crawl.
-    return new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    // Invalid, or an unsupported feature (backref/lookaround) — treat
+    // the input as a literal string rather than blowing up the crawl.
+    try {
+      const re = RE2JS.compile(
+        pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      );
+      return { test: (s) => re.matcher(s).find() };
+    } catch {
+      return { test: () => false };
+    }
   }
 }

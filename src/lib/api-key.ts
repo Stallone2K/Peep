@@ -57,13 +57,20 @@ export function safeCompareHex(a: string, b: string): boolean {
 export async function verifyApiKey(raw: string): Promise<{
   userId: string;
   apiKeyId: string;
+  teamId: string | null;
 }> {
   if (!raw.startsWith(KEY_PREFIX)) throw new InvalidApiKeyError();
 
   const hashed = hashApiKey(raw);
   const record = await db.apiKey.findFirst({
     where: { hashedKey: hashed },
-    select: { id: true, userId: true, hashedKey: true, revokedAt: true },
+    select: {
+      id: true,
+      userId: true,
+      teamId: true,
+      hashedKey: true,
+      revokedAt: true,
+    },
   });
   if (!record) throw new InvalidApiKeyError();
   if (record.revokedAt) throw new InvalidApiKeyError();
@@ -78,5 +85,5 @@ export async function verifyApiKey(raw: string): Promise<{
     .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })
     .catch(() => {});
 
-  return { userId: record.userId, apiKeyId: record.id };
+  return { userId: record.userId, apiKeyId: record.id, teamId: record.teamId };
 }

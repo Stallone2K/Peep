@@ -17,19 +17,15 @@ export const searchRequestSchema = z.object({
   // Locale
   country: z.string().length(2).optional(),
   lang: z.string().max(10).optional(),
-  // Free-form location — Firecrawl's search validator accepts a
-  // plain-text locale hint ("San Francisco, CA"). We accept it for
-  // shape parity; providers that can act on it (Brave's
-  // `search_region`, SerpAPI's `location`) will consume it later.
-  location: z.string().max(200).optional(),
+  // NOTE: `location` (free-text locale hint) and `filter` (source-side
+  // filter expression) were REMOVED (PARITY 🔴 dead-params): neither
+  // provider consumed them, so they were accepted and silently
+  // ignored. Re-add when a provider actually wires them (Brave
+  // `search_region` / `result_filter`, SerpAPI `location`).
 
   // Firecrawl pass-through — mirrors Google's "time-based search"
   // string (qdr:h / qdr:d / qdr:w / qdr:m / qdr:y).
   tbs: z.string().max(64).optional(),
-
-  // Source-side filter expression — Brave's `result_filter` etc.
-  // Accepted for forward-compat; the DDG fallback ignores it.
-  filter: z.string().max(500).optional(),
 
   sources: z
     .array(z.enum(["web", "news", "images"]))

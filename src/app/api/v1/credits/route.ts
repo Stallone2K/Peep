@@ -8,15 +8,15 @@ import { errorResponse, successJson } from "@/lib/route-helpers";
 // catch a low balance before a job 402s. Free — never debits.
 export async function GET(req: Request) {
   try {
-    const { userId } = await requireApiKey(req);
+    const { userId, teamId, planTier } = await requireApiKey(req);
 
-    const [user, recentLedger] = await Promise.all([
-      db.user.findUnique({
-        where: { id: userId },
-        select: { creditBalance: true, planTier: true },
+    const [team, recentLedger] = await Promise.all([
+      db.team.findUnique({
+        where: { id: teamId },
+        select: { creditBalance: true },
       }),
       db.creditLedger.findMany({
-        where: { userId },
+        where: { teamId },
         orderBy: { createdAt: "desc" },
         take: 20,
         select: {
@@ -32,8 +32,8 @@ export async function GET(req: Request) {
     return await successJson(
       {
         success: true,
-        balance: user?.creditBalance ?? 0,
-        plan: user?.planTier ?? "FREE",
+        balance: team?.creditBalance ?? 0,
+        plan: planTier,
         recentLedger,
       },
       { userId },

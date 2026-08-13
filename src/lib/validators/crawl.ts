@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { urlSchema, cursorSchema, boundedString } from "@/lib/validators/common";
+import {
+  urlSchema,
+  webhookUrlSchema,
+  cursorSchema,
+  boundedString,
+} from "@/lib/validators/common";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
 
 // Crawl request — Firecrawl parity. `includePaths`/`excludePaths` are
@@ -21,7 +26,12 @@ export const crawlRequestSchema = z.object({
 
   // Scope
   limit: z.number().int().positive().max(50_000).default(10_000),
+  // Link-hop depth cap — root + sitemap URLs are depth 0, links found
+  // on a depth-d page are depth d+1. `maxDepth` is the Firecrawl v1
+  // alias; when both are set the stricter one wins (enforced in the
+  // crawl worker).
   maxDiscoveryDepth: z.number().int().positive().max(10).optional(),
+  maxDepth: z.number().int().positive().max(10).optional(),
 
   // Path regex filters
   includePaths: z.array(z.string().max(2_000)).max(50).optional(),
@@ -43,9 +53,13 @@ export const crawlRequestSchema = z.object({
   // Robots.txt behaviour — mirrors Firecrawl's crawl-level toggles.
   // `ignoreRobotsTxt` translates into `respectRobotsTxt: false` on
   // every child scrape; the route boundary still gates this to paid
-  // tiers. `robotsUserAgent` overrides the default PeepBot UA.
+  // tiers.
+  //
+  // NOTE: `robotsUserAgent` was REMOVED (PARITY 🔴 dead-param) — it was
+  // accepted but never threaded into the robots check (which always
+  // uses PEEP_USER_AGENT). Re-add together with per-crawl UA plumbing
+  // into isAllowedByRobots.
   ignoreRobotsTxt: z.boolean().default(false),
-  robotsUserAgent: z.string().max(200).optional(),
 
   // Pacing
   delay: z.number().nonnegative().max(60).default(0),
@@ -69,7 +83,7 @@ export const crawlRequestSchema = z.object({
   // Optional webhook URL (Phase 6B wires the emitter)
   webhook: z
     .object({
-      url: urlSchema,
+      url: webhookUrlSchema,
       secret: z.string().max(200).optional(),
       events: z
         .array(

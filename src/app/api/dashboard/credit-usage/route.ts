@@ -9,25 +9,25 @@ import { PLAN_SPEC } from "@/lib/plans";
 // days (rolling window starting 30d ago from now).
 export async function GET() {
   try {
-    const { userId } = await requireSession();
+    const { teamId } = await requireSession();
 
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
-    const [user, ledger30d] = await Promise.all([
-      db.user.findUnique({
-        where: { id: userId },
+    const [team, ledger30d] = await Promise.all([
+      db.team.findUnique({
+        where: { id: teamId },
         select: { creditBalance: true, planTier: true },
       }),
       db.creditLedger.findMany({
-        where: { userId, createdAt: { gte: since } },
+        where: { teamId, createdAt: { gte: since } },
         select: { delta: true },
       }),
     ]);
 
-    if (!user) {
+    if (!team) {
       return Response.json(
-        { success: false, error: { code: "NOT_FOUND", message: "User not found" } },
+        { success: false, error: { code: "NOT_FOUND", message: "Team not found" } },
         { status: 404 },
       );
     }
@@ -42,9 +42,9 @@ export async function GET() {
     return Response.json({
       success: true,
       data: {
-        balance: user.creditBalance,
-        planTier: user.planTier,
-        plan: PLAN_SPEC[user.planTier],
+        balance: team.creditBalance,
+        planTier: team.planTier,
+        plan: PLAN_SPEC[team.planTier],
         last30Days: {
           spent,
           granted,

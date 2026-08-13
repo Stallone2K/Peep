@@ -20,9 +20,7 @@ export type ScrapeOutput = {
   jsonUnavailable?: string;
   summaryUnavailable?: string;
   brandingUnavailable?: string;
-  audioUnavailable?: string;
   attributesUnavailable?: string;
-  queryUnavailable?: string;
   changeTrackingUnavailable?: string;
   metadata: Record<string, unknown>;
   pageStatus: number;
@@ -34,9 +32,7 @@ type DeferredFormat =
   | "json"
   | "summary"
   | "branding"
-  | "audio"
   | "attributes"
-  | "query"
   | "changeTracking";
 
 const REQUIRES_JS: DeferredFormat[] = [
@@ -44,9 +40,7 @@ const REQUIRES_JS: DeferredFormat[] = [
   "json",
   "summary",
   "branding",
-  "audio",
   "attributes",
-  "query",
   "changeTracking",
 ];
 
@@ -144,14 +138,8 @@ export async function runScrape(
       case "branding":
         output.brandingUnavailable = msg;
         break;
-      case "audio":
-        output.audioUnavailable = msg;
-        break;
       case "attributes":
         output.attributesUnavailable = msg;
-        break;
-      case "query":
-        output.queryUnavailable = msg;
         break;
       case "changeTracking":
         output.changeTrackingUnavailable = msg;

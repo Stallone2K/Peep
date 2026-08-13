@@ -132,29 +132,40 @@ async function runCrawlJob(
   // deduplicateSimilarURLs (default true) escalates the frontier to
   // collapse query-param variants on the dedup side. Explicit
   // ignoreQueryParameters still wins when set.
+  //
+  // Depth cap (PARITY 🔴 fix — was parsed but never enforced):
+  // maxDiscoveryDepth is the v2 name, maxDepth the v1 alias; the
+  // stricter wins when both are given.
+  const depthLimits = [input.maxDiscoveryDepth, input.maxDepth].filter(
+    (d): d is number => typeof d === "number",
+  );
+  const maxDepth = depthLimits.length ? Math.min(...depthLimits) : undefined;
   const frontier = new CrawlFrontier(crawlJobId, {
     ignoreQueryParameters:
       input.ignoreQueryParameters || input.deduplicateSimilarURLs,
+    maxDepth,
   });
 
   // ─── Seed ────────────────────────────────────────────────────
+  // Root + sitemap URLs are discovery depth 0 (Firecrawl semantics).
   if (input.sitemap !== "skip") {
     const sitemap = await discoverSitemap(input.url);
     for (const u of sitemap.urls) {
-      if (filter.shouldVisit(u)) await frontier.add(u);
+      if (filter.shouldVisit(u)) await frontier.add(u, 0);
     }
     console.log(
       `[crawl-worker] ${crawlJobId}: sitemap seeded ${sitemap.urls.length} URLs`,
     );
   }
   if (input.sitemap !== "only") {
-    if (filter.shouldVisit(input.url)) await frontier.add(input.url);
+    if (filter.shouldVisit(input.url)) await frontier.add(input.url, 0);
   }
 
   // ─── Child scrape pub/sub ────────────────────────────────────
-  // Pattern-subscribe once per crawl; match against our in-flight set.
+  // Pattern-subscribe once per crawl; match against our in-flight map
+  // (scrapeJobId → discovery depth, so extracted links get depth+1).
   const sub = getRedisConnection().duplicate();
-  const inFlight = new Set<string>();
+  const inFlight = new Map<string, number>();
   const completions: Array<{
     scrapeJobId: string;
     status: "DONE" | "FAILED";
@@ -200,6 +211,7 @@ async function runCrawlJob(
       // Drain completions — extract links from finished children.
       while (completions.length > 0) {
         const c = completions.shift()!;
+        const parentDepth = inFlight.get(c.scrapeJobId) ?? 0;
         inFlight.delete(c.scrapeJobId);
         totalCompleted++;
         if (c.status === "DONE") {
@@ -227,7 +239,7 @@ async function runCrawlJob(
           for (const link of links) {
             if (totalEnqueued + frontier.size >= input.limit) break;
             if (!filter.shouldVisit(link)) continue;
-            await frontier.add(link);
+            await frontier.add(link, parentDepth + 1);
           }
         } else {
           const pagePayload = {
@@ -270,7 +282,7 @@ async function runCrawlJob(
             input.limit - totalEnqueued,
           ),
         );
-        for (const url of batch) {
+        for (const { url, depth } of batch) {
           // Mid-crawl credit check — stop gracefully if the user runs
           // out, so we don't accumulate debt on jobs that never run.
           const user = await db.user.findUnique({
@@ -320,7 +332,7 @@ async function runCrawlJob(
             },
           });
 
-          inFlight.add(child.id);
+          inFlight.set(child.id, depth);
           totalEnqueued++;
 
           const jobData: ScrapeJobData = {

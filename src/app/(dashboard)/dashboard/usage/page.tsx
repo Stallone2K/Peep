@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { resolveActiveTeam } from "@/lib/team";
 import { PeepCard } from "@/components/dashboard/peep-card";
 import { SpendSparkline } from "@/components/dashboard/spend-sparkline";
 import {
@@ -38,34 +39,35 @@ async function UsageContent() {
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
+  const active = await resolveActiveTeam(session.user.id);
+  if (!active) redirect("/sign-in");
+  const teamId = active.teamId;
+
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   start.setDate(start.getDate() - (SPEND_DAYS - 1));
 
-  const [user, ledger, spendRows] = await Promise.all([
+  const [user, team, ledger, spendRows] = await Promise.all([
     db.user.findUnique({
       where: { id: session.user.id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-        creditBalance: true,
-        planTier: true,
-      },
+      select: { id: true, name: true, email: true, createdAt: true },
+    }),
+    db.team.findUnique({
+      where: { id: teamId },
+      select: { creditBalance: true, planTier: true },
     }),
     db.creditLedger.findMany({
-      where: { userId: session.user.id },
+      where: { teamId },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
     db.creditLedger.findMany({
-      where: { userId: session.user.id, createdAt: { gte: start } },
+      where: { teamId, createdAt: { gte: start } },
       select: { delta: true, createdAt: true },
     }),
   ]);
 
-  if (!user) redirect("/sign-in");
+  if (!user || !team) redirect("/sign-in");
 
   // Bucket spend / grant per day for the trend chart.
   const buckets = new Map<string, { spent: number; granted: number }>();
@@ -100,8 +102,8 @@ async function UsageContent() {
         userId={user.id}
         name={user.name}
         email={user.email}
-        creditBalance={user.creditBalance}
-        planTier={user.planTier}
+        creditBalance={team.creditBalance}
+        planTier={team.planTier}
         memberSince={user.createdAt}
       />
 

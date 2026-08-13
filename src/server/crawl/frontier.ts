@@ -8,26 +8,38 @@ import { normalizeUrl } from "@/server/crawl/filters";
 // dequeue semantics. What we DO need is a crash-resilient "seen" set so
 // a retried worker doesn't re-enqueue the same URLs. Redis handles that
 // with a single `SADD` → 0/1 return for "already seen".
+//
+// Depth semantics (Firecrawl parity): the root URL and sitemap-seeded
+// URLs are depth 0; links discovered on a depth-d page are depth d+1.
+// When `maxDepth` is set, anything deeper is rejected at add() time —
+// this is what makes crawl `maxDiscoveryDepth` actually bite.
 
 const SEEN_TTL_SECONDS = 60 * 60 * 24; // 24h
 
+export type FrontierEntry = { url: string; depth: number };
+
 export class CrawlFrontier {
-  private queue: string[] = [];
+  private queue: FrontierEntry[] = [];
   private discovered = 0;
   private readonly seenKey: string;
   private readonly ignoreQueryParameters: boolean;
+  private readonly maxDepth: number | null;
 
   constructor(
     private readonly jobId: string,
-    opts: { ignoreQueryParameters?: boolean } = {},
+    opts: { ignoreQueryParameters?: boolean; maxDepth?: number } = {},
   ) {
     this.seenKey = `crawl:${jobId}:seen`;
     this.ignoreQueryParameters = opts.ignoreQueryParameters ?? false;
+    this.maxDepth = opts.maxDepth ?? null;
   }
 
-  // Register a URL as visitable. Returns true if this is a new URL we
-  // haven't seen before (and it passed normalization).
-  async add(rawUrl: string): Promise<boolean> {
+  // Register a URL as visitable at the given discovery depth. Returns
+  // true if this is a new URL we haven't seen before (and it passed
+  // normalization + the depth cap).
+  async add(rawUrl: string, depth = 0): Promise<boolean> {
+    if (this.maxDepth !== null && depth > this.maxDepth) return false;
+
     const normalized = normalizeUrl(rawUrl, {
       ignoreQueryParameters: this.ignoreQueryParameters,
     });
@@ -41,21 +53,21 @@ export class CrawlFrontier {
     // Refresh the TTL on every insert — covers long crawls.
     await redis.expire(this.seenKey, SEEN_TTL_SECONDS);
 
-    this.queue.push(normalized);
+    this.queue.push({ url: normalized, depth });
     this.discovered++;
     return true;
   }
 
-  async addMany(urls: string[]): Promise<number> {
+  async addMany(urls: string[], depth = 0): Promise<number> {
     let fresh = 0;
     for (const u of urls) {
-      if (await this.add(u)) fresh++;
+      if (await this.add(u, depth)) fresh++;
     }
     return fresh;
   }
 
-  // Pop up to `count` URLs off the front of the queue (FIFO = BFS).
-  popBatch(count: number): string[] {
+  // Pop up to `count` entries off the front of the queue (FIFO = BFS).
+  popBatch(count: number): FrontierEntry[] {
     if (count <= 0 || this.queue.length === 0) return [];
     return this.queue.splice(0, count);
   }

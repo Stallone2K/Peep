@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { urlSchema, cursorSchema } from "@/lib/validators/common";
+import { webhookUrlSchema, cursorSchema } from "@/lib/validators/common";
 import { scrapeRequestSchema } from "@/lib/validators/scrape";
 
 // POST /api/v1/batch/scrape — fires N scrape children in parallel.
@@ -27,17 +27,18 @@ export const batchScrapeRequestSchema = z.object({
   // existing BatchJob for the same user; children are added to that
   // job's tally instead of creating a new one. `ignoreInvalidURLs`
   // (default true) filters non-http(s) / malformed URLs before
-  // enqueue rather than 422-ing. `maxConcurrency` is stored on the
-  // BatchJob but not yet enforced at the worker level — BullMQ
-  // scales per-queue, not per-batch; a future follow-on can add a
-  // per-batch semaphore if needed.
+  // enqueue rather than 422-ing.
+  //
+  // `maxConcurrency` was REMOVED (PARITY 🔴 dead-param): it was parsed
+  // and stored but never enforced (BullMQ scales per-queue, not
+  // per-batch). Re-add together with a per-batch semaphore if it ever
+  // gets implemented — silently accepting it misleads SDK callers.
   appendToId: z.string().cuid().optional(),
   ignoreInvalidURLs: z.boolean().default(true),
-  maxConcurrency: z.number().int().positive().max(100).optional(),
 
   webhook: z
     .object({
-      url: urlSchema,
+      url: webhookUrlSchema,
       secret: z.string().max(200).optional(),
       events: z
         .array(z.enum(["batch.page", "batch.completed", "batch.failed"]))

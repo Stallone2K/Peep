@@ -33,6 +33,17 @@ export const urlSchema = z
     { message: "Loopback hosts are not allowed" },
   );
 
+// Webhook delivery target. On top of the base URL rules we require
+// https (relaxable via WEBHOOK_ALLOW_HTTP=true for local receivers).
+// DNS-level SSRF validation happens again at enqueue AND delivery time
+// in the webhook pipeline — this refine just gives callers a clear 422
+// instead of a silently dropped delivery.
+export const webhookUrlSchema = urlSchema.refine(
+  (v) =>
+    process.env.WEBHOOK_ALLOW_HTTP === "true" || /^https:\/\//i.test(v),
+  { message: "Webhook URLs must use https://" },
+);
+
 // Non-empty trimmed string with a character ceiling — used for user-
 // facing free-text fields like API key names.
 export function boundedString(min: number, max: number) {

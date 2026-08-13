@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { SidebarNav } from "@/components/dashboard/sidebar-nav";
 import { TopBar } from "@/components/dashboard/top-bar";
+import { SettingsProvider } from "@/components/dashboard/settings/settings-context";
+import { SettingsModal } from "@/components/dashboard/settings/settings-modal";
 
 export default function DashboardLayout({
   children,
@@ -11,15 +13,18 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen">
-      <Suspense fallback={<SidebarSkeleton />}>
-        <SidebarWithSession />
-      </Suspense>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar teamName="Personal Team" />
-        <main className="min-w-0 flex-1 overflow-x-hidden">{children}</main>
+    <SettingsProvider>
+      <div className="flex min-h-screen">
+        <Suspense fallback={<SidebarSkeleton />}>
+          <SidebarWithSession />
+        </Suspense>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar teamName="Personal Team" />
+          <main className="min-w-0 flex-1 overflow-x-hidden">{children}</main>
+        </div>
       </div>
-    </div>
+      <SettingsModal />
+    </SettingsProvider>
   );
 }
 

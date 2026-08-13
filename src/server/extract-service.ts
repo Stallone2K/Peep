@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { debitCredits, refundCredits } from "@/lib/credits";
 import { extractQueue, getRedisConnection } from "@/lib/queue";
+import { emitWebhook, type WebhookEvent } from "@/lib/webhooks";
 import type { ExtractRequestInput } from "@/lib/validators/extract";
 import { runScrapeWithStrategy } from "@/server/scraper/strategy";
 import {
@@ -43,7 +44,9 @@ export async function startExtractJob({
       prompt: input.prompt,
       systemPrompt: input.systemPrompt,
       schema: (input.schema as never) ?? null,
-      enableWebSearch: input.enableWebSearch,
+      // Dead param removed from the API (PARITY 🔴) — the column stays
+      // until the schema migration lands, so persist a literal false.
+      enableWebSearch: false,
       status: "QUEUED",
       creditsUsed: creditsNeeded,
       integration: input.integration,
@@ -70,10 +73,33 @@ export async function runExtractJob(
   extractJobId: string,
   input: ExtractRequestInput,
 ): Promise<void> {
-  await db.extractJob.update({
+  const jobRow = await db.extractJob.update({
     where: { id: extractJobId },
     data: { status: "RUNNING", startedAt: new Date() },
+    select: { userId: true },
   });
+
+  // PARITY 🔴: extract.* webhook events were declared but never emitted.
+  // Fire them (SSRF-validated inside emitWebhook) when the job settles.
+  const webhookCfg = input.webhook ?? null;
+  const fireWebhook = (
+    event: Extract<WebhookEvent, "extract.completed" | "extract.failed">,
+    data: Record<string, unknown>,
+  ): Promise<void> => {
+    if (!webhookCfg?.url) return Promise.resolve();
+    if (webhookCfg.events && !webhookCfg.events.includes(event)) {
+      return Promise.resolve();
+    }
+    return emitWebhook({
+      url: webhookCfg.url,
+      secret: webhookCfg.secret,
+      event,
+      userId: jobRow.userId,
+      refType: "ExtractJob",
+      refId: extractJobId,
+      data,
+    }).catch(() => {});
+  };
 
   try {
     const urls = input.urls ?? [];
@@ -159,7 +185,12 @@ export async function runExtractJob(
         result: {
           data: result,
           ...(inferredSchema ? { schema: inferredSchema } : {}),
-          ...(input.urlTrace ? { sources: perUrl } : {}),
+          // PARITY 🔴 fix: `showSources` used to be dead (only the
+          // undocumented `urlTrace` was read). Either flag now
+          // surfaces the per-URL source list.
+          ...(input.showSources || input.urlTrace
+            ? { sources: perUrl }
+            : {}),
         } as never,
         tokensUsed: {
           input: totalInputTokens,
@@ -173,6 +204,11 @@ export async function runExtractJob(
       `extract:done:${extractJobId}`,
       JSON.stringify({ jobId: extractJobId, status: "DONE" }),
     );
+
+    await fireWebhook("extract.completed", {
+      extractJobId,
+      urls: input.urls ?? [],
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const code =
@@ -210,6 +246,8 @@ export async function runExtractJob(
         JSON.stringify({ jobId: extractJobId, status: "FAILED", error: message }),
       )
       .catch(() => {});
+
+    await fireWebhook("extract.failed", { extractJobId, error: message });
 
     throw err;
   }

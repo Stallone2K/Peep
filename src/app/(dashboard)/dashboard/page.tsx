@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { resolveActiveTeam } from "@/lib/team";
 import { concurrencyCap } from "@/lib/plans";
 import { ApiKeyWidget } from "@/components/dashboard/api-key-widget";
 import { AgentIntegrations } from "@/components/dashboard/agent-integrations";
@@ -64,11 +65,14 @@ async function ConcurrentBrowsersServer() {
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
-  const user = await db.user.findUnique({
-    where: { id: session.user.id },
-    select: { planTier: true },
-  });
-  const cap = user ? concurrencyCap(user.planTier) : 2;
+  const active = await resolveActiveTeam(session.user.id);
+  const team = active
+    ? await db.team.findUnique({
+        where: { id: active.teamId },
+        select: { planTier: true },
+      })
+    : null;
+  const cap = team ? concurrencyCap(team.planTier) : 2;
 
   // Real live count arrives in Phase 4 via Redis. For now it's always 0.
   return <ConcurrentBrowsers active={0} cap={cap} />;

@@ -4,6 +4,7 @@ import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 
 import { db } from "@/lib/db";
+import { createPersonalTeam } from "@/lib/team";
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db),
@@ -38,9 +39,17 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   events: {
     async createUser({ user }) {
       if (!user.id) return;
+      // Every new account gets a personal team (owns the Peep Card, 500 credits
+      // by default) + an OWNER membership. Record the grant against the team.
+      const teamId = await createPersonalTeam({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      });
       await db.creditLedger.create({
         data: {
           userId: user.id,
+          teamId,
           delta: 500,
           reason: "signup_grant",
         },

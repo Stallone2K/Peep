@@ -1,11 +1,17 @@
 import { Worker, Job } from "bullmq";
+import { fetch as undiciFetch } from "undici";
 
 import { getRedisConnection } from "@/lib/queue";
 import {
   resolveSecret,
   signWebhook,
+  webhookRequiresHttps,
   type WebhookDelivery,
 } from "@/lib/webhooks";
+import {
+  assertSafeUrl,
+  createPinnedDispatcher,
+} from "@/server/scraper/ssrf";
 
 const CONCURRENCY = Number(process.env.WEBHOOK_CONCURRENCY ?? "4");
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -36,18 +42,48 @@ export function startWebhookWorker() {
         headers["peep-signature"] = signWebhook(body, timestamp, secret);
       }
 
+      // SSRF re-check at delivery time (H1) — enqueue-time validation
+      // doesn't survive a DNS flip. Pin the socket to the IP that
+      // passed, and never follow redirects (a redirect to an internal
+      // host is the classic bypass). Terminal failure — retrying a
+      // private target won't make it public.
+      let safe;
+      try {
+        safe = await assertSafeUrl(delivery.url, {
+          requireHttps: webhookRequiresHttps(),
+        });
+      } catch (err) {
+        console.warn("[webhook] unsafe delivery URL — dropped", {
+          url: delivery.url,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        return { delivered: false, status: 0 };
+      }
+
+      const dispatcher = createPinnedDispatcher(safe.address, safe.family);
       const controller = new AbortController();
       const timer = setTimeout(
         () => controller.abort(),
         DELIVERY_TIMEOUT_MS,
       );
       try {
-        const res = await fetch(delivery.url, {
+        const res = await undiciFetch(delivery.url, {
           method: "POST",
+          redirect: "manual",
           signal: controller.signal,
           headers,
           body,
+          dispatcher,
         });
+
+        if (res.status >= 300 && res.status < 400) {
+          // Receiver tried to redirect us — treat as rejection.
+          console.warn("[webhook] receiver redirected delivery — dropped", {
+            url: delivery.url,
+            status: res.status,
+          });
+          return { delivered: false, status: res.status };
+        }
 
         if (res.status >= 500 || res.status === 408 || res.status === 429) {
           throw new Error(
@@ -67,6 +103,7 @@ export function startWebhookWorker() {
         return { delivered: true, status: res.status };
       } finally {
         clearTimeout(timer);
+        await dispatcher.close().catch(() => {});
       }
     },
     {

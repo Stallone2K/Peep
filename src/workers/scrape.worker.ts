@@ -2,6 +2,7 @@ import { Worker, Job } from "bullmq";
 
 import { db } from "@/lib/db";
 import { getRedisConnection } from "@/lib/queue";
+import { cacheKey } from "@/lib/scrape-cache";
 import { runScrapeWithStrategy } from "@/server/scraper/strategy";
 import { parseVideoId } from "@/server/youtube/extract";
 import { getYouTubeSession } from "@/server/youtube/session";
@@ -79,6 +80,11 @@ export function startScrapeWorker() {
           db.scrapeResult.create({
             data: {
               jobId: scrapeJobId,
+              // Persist the cache key so future scrapes can hit this
+              // result (respecting storeInCache). Previously only the
+              // inline path set this, so QUEUED scrapes never cached.
+              cacheKey:
+                input.storeInCache !== false ? cacheKey(input) : null,
               markdown: result.markdown,
               html: result.html,
               rawHtml: result.rawHtml,
@@ -97,6 +103,7 @@ export function startScrapeWorker() {
                 summary: result.summary,
                 branding: result.branding,
                 youtube: result.youtube,
+                audio: result.audio,
               } as never,
               pageStatus: result.pageStatus,
               durationMs: result.durationMs,

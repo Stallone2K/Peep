@@ -151,5 +151,11 @@ export function sanitizeHtml(
     return keep.map((el) => el.outerHTML).join("\n");
   }
 
-  return document.body?.innerHTML ?? document.toString();
+  // Prefer body.innerHTML for a full document. But a FRAGMENT (e.g.
+  // Readability's `.content`, a bare `<div>…`) parses with an empty
+  // <body> in linkedom — `??` won't catch that since innerHTML is ""
+  // not null — so fall back to serializing the whole document. Without
+  // this, sanitizing readable content would return an empty string.
+  const bodyHtml = document.body?.innerHTML ?? "";
+  return bodyHtml.trim() ? bodyHtml : document.toString();
 }

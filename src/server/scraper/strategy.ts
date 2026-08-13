@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
 
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
-import { fetchPage, type FetchResult } from "@/server/scraper/fetcher";
+import { fetchPage } from "@/server/scraper/fetcher";
 import {
   extractReadable,
   extractMetadata,
@@ -52,6 +52,16 @@ const YT_INNERTUBE_CALL_TIMEOUT_MS = Number(
 );
 import { executeActions, type Action } from "@/server/scraper/actions";
 import { detectBlock } from "@/server/scraper/block-detect";
+import {
+  assertSafeUrl,
+  installSsrfPageGuard,
+} from "@/server/scraper/ssrf";
+import {
+  transcribeUrlAudio,
+  isAudioConfigured,
+  isAudioFormatEnabled,
+  type AudioResult,
+} from "@/server/scraper/audio";
 import { getProxyConfig, isStealthAvailable, type ProxyTier } from "@/server/proxy/providers";
 import { uploadScreenshot, isR2Configured } from "@/lib/storage";
 import { extractStructured } from "@/server/ai/extract";
@@ -91,6 +101,7 @@ export type ScrapeResult = {
   summary?: string;
   branding?: Record<string, unknown>;
   changeTracking?: import("@/server/scraper/change-tracking").ChangeTrackingResult;
+  audio?: AudioResult;
   metadata: Record<string, unknown>;
   youtube?: YouTubeData;
   extracted?: unknown;
@@ -119,8 +130,13 @@ export function pickEngine(input: ScrapeRequestInput): EngineType {
   // consent/bot interstitial on datacenter IPs).
   if (parseVideoId(input.url)) return "playwright";
 
-  // If fastMode is on, always HTTP
+  // If fastMode is on, always HTTP (explicit opt-out of the browser).
   if (input.fastMode) return "http";
+
+  // waitFor asks the page to settle after load — only meaningful with a
+  // rendered browser. Honour it instead of silently ignoring it on the
+  // HTTP fast path (PARITY 🔴).
+  if (input.waitFor > 0) return "playwright";
 
   // If proxy is stealth/enhanced, need browser
   if (input.proxy === "stealth" || input.proxy === "enhanced") {
@@ -145,6 +161,12 @@ export async function runScrapeWithStrategy(
   },
 ): Promise<ScrapeResult> {
   const start = Date.now();
+
+  // SSRF guard — validate scheme + resolved IPs before ANY network
+  // activity (robots fetch, HTTP fetch, or page.goto). The browser
+  // path gets a second layer inside runPlaywright (request
+  // interceptor) covering redirects and subresources.
+  await assertSafeUrl(input.url);
 
   // Phase 7 — robots.txt pre-flight. Runs for every scrape regardless
   // of path (inline /scrape, /crawl child, /batch child) so policy is
@@ -183,6 +205,7 @@ export async function runScrapeWithStrategy(
       skipTlsVerification: input.skipTlsVerification,
       languages: input.languages,
       country: input.country,
+      mobile: input.mobile,
     });
 
     // Check for block — escalate to Playwright if auto
@@ -206,7 +229,13 @@ export async function runScrapeWithStrategy(
         start,
         engine: "http",
       });
-      return applyAIFormats(base, input, wantedTypes, fetched.bodyText);
+      const withAI = await applyAIFormats(
+        base,
+        input,
+        wantedTypes,
+        fetched.bodyText,
+      );
+      return applyAudioFormat(withAI, input, wantedTypes);
     }
   }
 
@@ -263,11 +292,19 @@ async function runPlaywright({
 }): Promise<ScrapeResult> {
   const proxyTier: ProxyTier =
     engine === "proxy-playwright" ? "stealth" : "basic";
-  const proxyConfig = getProxyConfig(proxyTier);
+  const proxyConfig = getProxyConfig(proxyTier, { country: input.country });
 
   const pool = BrowserPool.getInstance();
   return pool.withPage(
     async (page: Page) => {
+      // C1 — the browser path must never navigate to unvalidated
+      // targets. Check the initial URL, then intercept every request
+      // the page makes (subresources, XHR, JS/HTTP redirect hops) and
+      // abort anything that resolves to a private address. Blocks
+      // file:/chrome:/about: schemes too (only http/https pass).
+      await assertSafeUrl(input.url);
+      await installSsrfPageGuard(page);
+
       // Navigate. `domcontentloaded` always fires (the page's data JSON is
       // present by then); then give client-rendered content a brief settle
       // window — but DON'T wait for full "networkidle", which media/SPA sites
@@ -530,17 +567,21 @@ async function runPlaywright({
         }
       }
 
-      return {
+      const finalResult: ScrapeResult = {
         ...withAI,
         screenshot: screenshotUrl,
         proxyUsed: proxyTier !== "basic" ? proxyTier : undefined,
         actionResults,
       };
+      return applyAudioFormat(finalResult, input, wantedTypes);
     },
     {
       mobile: input.mobile,
       blockAds: input.blockAds,
-      proxyServer: proxyConfig?.server,
+      // Full proxy config (server + credentials) — applied to a
+      // dedicated browser context so stealth traffic actually egresses
+      // through the proxy (PARITY 🔴: was threaded but never wired).
+      proxy: proxyConfig ?? undefined,
       languages: input.languages,
       cookies,
     },
@@ -556,6 +597,44 @@ class NeedsStealthEscalation extends Error {
     super("stealth_escalation_requested");
     this.name = "NeedsStealthEscalation";
   }
+}
+
+// Resolve the HTML to feed markdown/html output. When onlyMainContent
+// is on and Readability succeeded we start from its cleaned main
+// content — but STILL apply includeTags/excludeTags/removeBase64Images
+// over it (PARITY 🔴: those were silently dropped on the Readability
+// path, only honoured when main-content extraction failed). When
+// Readability didn't run, sanitizeHtml does the main-content pass +
+// the same filters over the raw HTML.
+function cleanContentHtml(
+  html: string,
+  readable: ReturnType<typeof extractReadable>,
+  input: ScrapeRequestInput,
+): string {
+  if (input.onlyMainContent && readable) {
+    const needsFilter =
+      !!input.includeTags?.length ||
+      !!input.excludeTags?.length ||
+      input.removeBase64Images !== false ||
+      input.onlyCleanContent;
+    if (!needsFilter) return readable.content;
+    // Readability already did main-content extraction — don't redo it,
+    // just apply the tag filters + base64 stripping on top.
+    return sanitizeHtml(readable.content, {
+      includeTags: input.includeTags,
+      excludeTags: input.excludeTags,
+      onlyMainContent: false,
+      onlyCleanContent: input.onlyCleanContent,
+      removeBase64Images: input.removeBase64Images,
+    });
+  }
+  return sanitizeHtml(html, {
+    includeTags: input.includeTags,
+    excludeTags: input.excludeTags,
+    onlyMainContent: input.onlyMainContent,
+    onlyCleanContent: input.onlyCleanContent,
+    removeBase64Images: input.removeBase64Images,
+  });
 }
 
 // Shared HTML → structured-output pipeline used by both HTTP and PW paths.
@@ -581,30 +660,11 @@ function buildResultFromHtml(opts: {
   };
 
   if (wantedTypes.has("markdown")) {
-    const sourceHtml =
-      input.onlyMainContent && readable
-        ? readable.content
-        : sanitizeHtml(html, {
-            includeTags: input.includeTags,
-            excludeTags: input.excludeTags,
-            onlyMainContent: input.onlyMainContent,
-            onlyCleanContent: input.onlyCleanContent,
-            removeBase64Images: input.removeBase64Images,
-          });
-    result.markdown = htmlToMarkdown(sourceHtml);
+    result.markdown = htmlToMarkdown(cleanContentHtml(html, readable, input));
   }
 
   if (wantedTypes.has("html")) {
-    result.html =
-      input.onlyMainContent && readable
-        ? readable.content
-        : sanitizeHtml(html, {
-            includeTags: input.includeTags,
-            excludeTags: input.excludeTags,
-            onlyMainContent: input.onlyMainContent,
-            onlyCleanContent: input.onlyCleanContent,
-            removeBase64Images: input.removeBase64Images,
-          });
+    result.html = cleanContentHtml(html, readable, input);
   }
 
   if (wantedTypes.has("rawHtml")) {
@@ -748,4 +808,59 @@ async function applyAIFormats(
   }
 
   return base;
+}
+
+// Apply the `audio` format — transcribe the URL's audio track to text.
+// Independent of the HTML path (works off the URL, so it runs the same
+// way for the HTTP and Playwright engines). Degrades gracefully: an
+// unconfigured engine or a transcription failure lands as a typed hint
+// in metadata instead of failing the whole scrape.
+async function applyAudioFormat(
+  result: ScrapeResult,
+  input: ScrapeRequestInput,
+  wantedTypes: Set<string>,
+): Promise<ScrapeResult> {
+  if (!wantedTypes.has("audio")) return result;
+
+  // Held as "Coming Soon" until the feature flag is flipped. Accepted
+  // but inert — no transcription, and computeCredits skips the charge.
+  if (!isAudioFormatEnabled()) {
+    result.metadata = {
+      ...result.metadata,
+      audioComingSoon:
+        "Audio transcription is coming soon and is not yet available.",
+    };
+    return result;
+  }
+
+  const audioFmt = input.formats.find((f) => f.type === "audio") as
+    | { language?: string; timestamps?: boolean }
+    | undefined;
+
+  if (!isAudioConfigured()) {
+    result.metadata = {
+      ...result.metadata,
+      audioUnavailable:
+        "Audio transcription not configured (set WHISPER_API_KEY or WHISPER_CPP_BIN)",
+    };
+    return result;
+  }
+
+  try {
+    const audio = await transcribeUrlAudio(input.url, {
+      language: audioFmt?.language,
+      async: input.async,
+    });
+    // Honour timestamps:false — return just the flat transcript.
+    if (audioFmt && audioFmt.timestamps === false) {
+      audio.segments = [];
+    }
+    result.audio = audio;
+  } catch (err) {
+    result.metadata = {
+      ...result.metadata,
+      audioError: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return result;
 }

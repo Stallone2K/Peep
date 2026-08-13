@@ -31,6 +31,66 @@ model User {
   batchJobs  BatchJob[]
   snapshots  ChangeSnapshot[]
   ledger     CreditLedger[]
+
+  // Multi-tenancy
+  defaultTeamId   String?
+  teamMemberships TeamMember[]
+  teamInvites     TeamInvite[] @relation("InvitedBy")
+}
+
+// ─── Teams / workspaces (multi-tenancy) ────────────────────────────
+// Data (jobs, keys, credits) is scoped by a scalar `teamId` on each
+// table. Team owns planTier + creditBalance (the active Peep Card);
+// User is identity only.
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Team {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  logoKey       String?
+  planTier      PlanTier @default(FREE)
+  creditBalance Int      @default(500)
+  createdAt     DateTime @default(now())
+
+  members TeamMember[]
+  invites TeamInvite[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      TeamRole @default(MEMBER)
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+model TeamInvite {
+  id          String   @id @default(cuid())
+  teamId      String
+  email       String
+  role        TeamRole @default(MEMBER)
+  token       String   @unique
+  invitedById String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy User @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([email])
 }
 
 model Account {
@@ -101,6 +161,7 @@ enum CrawlStatus {
 model ApiKey {
   id         String    @id @default(cuid())
   userId     String
+  teamId     String?
   name       String
   prefix     String    @unique
   hashedKey  String
@@ -113,11 +174,13 @@ model ApiKey {
 
   @@index([userId])
   @@index([hashedKey])
+  @@index([teamId])
 }
 
 model ScrapeJob {
   id          String    @id @default(cuid())
   userId      String
+  teamId      String?
   apiKeyId    String?
   crawlJobId  String?
   batchJobId  String?
@@ -141,6 +204,7 @@ model ScrapeJob {
   @@index([status])
   @@index([crawlJobId])
   @@index([batchJobId])
+  @@index([teamId])
 }
 
 model ScrapeResult {
@@ -172,6 +236,7 @@ model ScrapeResult {
 model IdempotencyRecord {
   id             String   @id @default(cuid())
   userId         String
+  teamId         String?
   idempotencyKey String
   bodyHash       String
   responseBody   Json
@@ -181,11 +246,13 @@ model IdempotencyRecord {
 
   @@unique([userId, idempotencyKey])
   @@index([expiresAt])
+  @@index([teamId])
 }
 
 model CrawlJob {
   id              String      @id @default(cuid())
   userId          String
+  teamId          String?
   rootUrl         String
   options         Json
   status          CrawlStatus @default(QUEUED)
@@ -199,6 +266,7 @@ model CrawlJob {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
+  @@index([teamId])
 }
 
 // Parallel scrape of a list of URLs. Each child lands in the shared
@@ -208,6 +276,7 @@ model CrawlJob {
 model BatchJob {
   id            String    @id @default(cuid())
   userId        String
+  teamId        String?
   apiKeyId      String?
   options       Json
   total         Int
@@ -225,6 +294,7 @@ model BatchJob {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
+  @@index([teamId])
 }
 
 // Phase 7 — per-URL content snapshots for `changeTracking` format.
@@ -236,6 +306,7 @@ model BatchJob {
 model ChangeSnapshot {
   id          String   @id @default(cuid())
   userId      String
+  teamId      String?
   url         String
   tag         String?
   markdown    String?  @db.Text
@@ -245,34 +316,38 @@ model ChangeSnapshot {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, url, tag, createdAt(sort: Desc)])
+  @@index([teamId])
 }
 
 model ExtractJob {
-  id              String      @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
+  teamId          String?
   apiKeyId        String?
   urls            String[]
-  prompt          String?     @db.Text
-  systemPrompt    String?     @db.Text
+  prompt          String?   @db.Text
+  systemPrompt    String?   @db.Text
   schema          Json?
-  enableWebSearch Boolean     @default(false)
-  status          JobStatus   @default(QUEUED)
-  creditsUsed     Int         @default(0)
+  enableWebSearch Boolean   @default(false)
+  status          JobStatus @default(QUEUED)
+  creditsUsed     Int       @default(0)
   error           String?
   result          Json?
   tokensUsed      Json?
   startedAt       DateTime?
   completedAt     DateTime?
-  createdAt       DateTime    @default(now())
+  createdAt       DateTime  @default(now())
   integration     String?
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
+  @@index([teamId])
 }
 
 model CreditLedger {
   id        String   @id @default(cuid())
   userId    String
+  teamId    String?
   delta     Int
   reason    String
   refType   String?
@@ -282,4 +357,5 @@ model CreditLedger {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([teamId])
 }

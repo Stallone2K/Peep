@@ -9,27 +9,29 @@ import { toJsonError } from "@/lib/errors";
 // contexts for this user). For now we count RUNNING ScrapeJob rows.
 export async function GET() {
   try {
-    const { userId } = await requireSession();
+    const { userId, teamId } = await requireSession();
 
-    const [user, runningCount] = await Promise.all([
-      db.user.findUnique({
-        where: { id: userId },
+    const [team, runningCount] = await Promise.all([
+      db.team.findUnique({
+        where: { id: teamId },
         select: { planTier: true },
       }),
+      // Job rows aren't teamId-stamped on write yet (deferred pass) — count by
+      // user so the number stays accurate until data scoping lands.
       db.scrapeJob.count({
         where: { userId, status: "RUNNING" },
       }),
     ]);
 
-    const cap = user ? concurrencyCap(user.planTier) : 2;
-    const plan = user ? PLAN_SPEC[user.planTier] : PLAN_SPEC.FREE;
+    const cap = team ? concurrencyCap(team.planTier) : 2;
+    const plan = team ? PLAN_SPEC[team.planTier] : PLAN_SPEC.FREE;
 
     return Response.json({
       success: true,
       data: {
         active: runningCount,
         cap,
-        planTier: user?.planTier ?? "FREE",
+        planTier: team?.planTier ?? "FREE",
         planName: plan.name,
       },
     });

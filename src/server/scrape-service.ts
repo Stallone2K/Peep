@@ -5,7 +5,8 @@ import { scrapeQueue } from "@/lib/queue";
 import { getRedisConnection } from "@/lib/queue";
 import { ApiError, InternalError } from "@/lib/errors";
 import type { ScrapeRequestInput } from "@/lib/validators/scrape";
-import { runScrapeWithStrategy, type ScrapeResult } from "@/server/scraper/strategy";
+import { runScrapeWithStrategy } from "@/server/scraper/strategy";
+import { isAudioFormatEnabled } from "@/server/scraper/audio";
 import { parseVideoId } from "@/server/youtube/extract";
 import { getYouTubeSession } from "@/server/youtube/session";
 import { applyChangeTracking } from "@/server/scraper/change-tracking";
@@ -16,10 +17,10 @@ import type { ScrapeJobData } from "@/workers/scrape.worker";
 const BASE_CREDITS = 1;
 
 // Firecrawl billing rules (PLAN §11.12): json or changeTracking-json
-// format → 5 credits (replaces base). Other surcharges (audio/query
-// +4, stealth-proxy-used +4) are added to the charge by the worker
-// after the scrape completes. For the Phase 5 inline path we compute
-// the json surcharge upfront based on requested formats.
+// format → 5 credits (replaces base). The stealth-proxy-used +4
+// surcharge is added by the worker after the scrape completes. The
+// former query/audio +4 surcharges are gone with the formats (PARITY
+// 🔴: they were billed but never produced output).
 function computeCredits(input: ScrapeRequestInput): number {
   const hasJson = input.formats.some((f) => f.type === "json");
   const changeTrackingFmt = input.formats.find(
@@ -30,10 +31,18 @@ function computeCredits(input: ScrapeRequestInput): number {
   if (hasJson || hasJsonChangeTracking) return 5;
 
   let credits = BASE_CREDITS;
-  if (input.formats.some((f) => f.type === "query")) credits += 4;
-  if (input.formats.some((f) => f.type === "audio")) credits += 4;
   if (input.formats.some((f) => f.type === "summary")) credits += 2;
   if (input.formats.some((f) => f.type === "branding")) credits += 2;
+  // Audio transcription is genuinely heavy (download + transcode +
+  // speech-to-text), so it carries the same +4 surcharge Firecrawl
+  // uses — but ONLY when the feature is live. While it's "Coming Soon"
+  // (flag off) the format is inert, so we must not charge for it.
+  if (
+    isAudioFormatEnabled() &&
+    input.formats.some((f) => f.type === "audio")
+  ) {
+    credits += 4;
+  }
   return credits;
 }
 
@@ -297,6 +306,7 @@ function formatDbResult(
       summary: meta.summary ?? undefined,
       branding: meta.branding ?? undefined,
       youtube: meta.youtube ?? undefined,
+      audio: meta.audio ?? undefined,
       changeTracking: meta.changeTracking ?? undefined,
       pageStatus: result.pageStatus ?? undefined,
       durationMs: result.durationMs ?? undefined,
@@ -387,6 +397,7 @@ async function runInline({
             summary: out.summary,
             branding: out.branding,
             changeTracking: out.changeTracking,
+            audio: out.audio,
           } as never,
           pageStatus: out.pageStatus,
           durationMs: out.durationMs,
